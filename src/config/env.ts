@@ -33,10 +33,14 @@ export const env = {
 
   PORT: Number(process.env.PORT) || 3000,
 
+  CORS_ORIGIN: process.env.CORS_ORIGIN,
+
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+  SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET ?? "files",
 
   LOG_PROVIDER: process.env.LOG_PROVIDER ?? "winston",
+  /** Use `http` to log every request (tiny format). Default `info` avoids access-log noise. */
   LOG_LEVEL: process.env.LOG_LEVEL ?? "http",
 
   DATABASE_URL: process.env.DATABASE_URL,

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Auth flow test (Supabase + API, cross-origin)</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        line-height: 1.5;
+        color: #111;
+        background: #f6f7f9;
+      }
+      body {
+        max-width: 42rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-top: 1rem;
+        color: #444;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.5rem 0.6rem;
+        margin-top: 0.25rem;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font: inherit;
+      }
+      button {
+        margin-top: 1rem;
+        margin-right: 0.5rem;
+        padding: 0.5rem 1rem;
+        font: inherit;
+        border-radius: 6px;
+        border: 1px solid #333;
+        background: #111;
+        color: #fff;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #fff;
+        color: #111;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      pre {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 1rem;
+        border-radius: 8px;
+        overflow: auto;
+        font-size: 0.8rem;
+      }
+      .note {
+        font-size: 0.85rem;
+        color: #555;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1.5rem;
+      }
+      .ok {
+        color: #0a0;
+      }
+      .err {
+        color: #c00;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Auth flow test</h1>
+    <p class="note">
+      The API enables <strong>CORS</strong> in development (any origin) or uses
+      <code>CORS_ORIGIN</code> in production. Serve this file from any static server
+      (e.g. Live Server on port 5500) and set <strong>API base</strong> to your backend
+      (<code>http://localhost:3000</code>). In Supabase → Authentication → URL
+      configuration, add the <strong>exact URL of this page</strong> to Redirect URLs
+      (OAuth return). Enable Google provider.
+    </p>
+
+    <label for="url">SUPABASE_URL</label>
+    <input id="url" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off" />
+
+    <label for="anon">SUPABASE_ANON_KEY</label>
+    <input id="anon" type="password" placeholder="eyJ..." autocomplete="off" />
+
+    <label for="api">API base (backend origin)</label>
+    <input
+      id="api"
+      type="url"
+      placeholder="http://localhost:3000"
+      autocomplete="off"
+    />
+
+    <div>
+      <button type="button" id="save">Save to localStorage</button>
+      <button type="button" id="google" class="secondary">Sign in with Google</button>
+      <button type="button" id="me" class="secondary" disabled>GET /auth/me</button>
+      <button type="button" id="out" class="secondary" disabled>Sign out</button>
+    </div>
+
+    <p id="status"></p>
+    <pre id="outbox">{}</pre>
+
+    <script type="module">
+      import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+      const $ = (id) => document.getElementById(id);
+      const urlIn = $("url");
+      const anonIn = $("anon");
+      const apiIn = $("api");
+      const statusEl = $("status");
+      const outbox = $("outbox");
+      const btnGoogle = $("google");
+      const btnMe = $("me");
+      const btnOut = $("out");
+      const btnSave = $("save");
+
+      function load() {
+        urlIn.value = localStorage.getItem("AUTH_TEST_SUPABASE_URL") || "";
+        anonIn.value = localStorage.getItem("AUTH_TEST_SUPABASE_ANON_KEY") || "";
+        apiIn.value =
+          localStorage.getItem("AUTH_TEST_API_BASE") || "http://localhost:3000";
+      }
+
+      function setOut(data) {
+        outbox.textContent =
+          typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      }
+
+      function status(msg, cls) {
+        statusEl.textContent = msg;
+        statusEl.className = cls || "";
+      }
+
+      function client() {
+        const url = urlIn.value.trim();
+        const key = anonIn.value.trim();
+        if (!url || !key) {
+          throw new Error("Set SUPABASE_URL and SUPABASE_ANON_KEY (Save first).");
+        }
+        return createClient(url, key);
+      }
+
+      async function finishOAuthIfNeeded(supabase) {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code");
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      }
+
+      async function refreshUi(supabase) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const authed = !!session;
+        btnMe.disabled = !authed;
+        btnOut.disabled = !authed;
+        status(
+          authed
+            ? "Signed in — use GET /auth/me (cross-origin fetch)."
+            : "Not signed in.",
+          authed ? "ok" : ""
+        );
+        setOut({
+          user: session?.user ?? null,
+          expires_at: session?.expires_at ?? null,
+        });
+      }
+
+      btnSave.addEventListener("click", () => {
+        localStorage.setItem("AUTH_TEST_SUPABASE_URL", urlIn.value.trim());
+        localStorage.setItem("AUTH_TEST_SUPABASE_ANON_KEY", anonIn.value.trim());
+        localStorage.setItem("AUTH_TEST_API_BASE", apiIn.value.trim());
+        status("Saved.", "ok");
+      });
+
+      btnGoogle.addEventListener("click", async () => {
+        try {
+          const supabase = client();
+          const redirectTo = `${window.location.origin}${window.location.pathname}`;
+          const { error } = await supabase.auth.signInWithOAuth({
+            provider: "google",
+            options: { redirectTo },
+          });
+          if (error) throw error;
+        } catch (e) {
+          status(e.message || String(e), "err");
+        }
+      });
+
+      btnMe.addEventListener("click", async () => {
+        try {
+          const supabase = client();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            status("No access token — sign in first.", "err");
+            return;
+          }
+          const base = apiIn.value.trim().replace(/\/$/, "");
+          const res = await fetch(`${base}/auth/me`, {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              Accept: "application/json",
+            },
+          });
+          const body = await res.json().catch(() => ({}));
+          setOut({ status: res.status, body });
+          status(
+            res.ok ? "/auth/me OK" : `/auth/me failed (${res.status})`,
+            res.ok ? "ok" : "err"
+          );
+        } catch (e) {
+          status(e.message || String(e), "err");
+          setOut(String(e));
+        }
+      });
+
+      btnOut.addEventListener("click", async () => {
+        try {
+          const supabase = client();
+          await supabase.auth.signOut();
+          await refreshUi(supabase);
+        } catch (e) {
+          status(e.message || String(e), "err");
+        }
+      });
+
+      load();
+      try {
+        if (urlIn.value && anonIn.value) {
+          const supabase = client();
+          await finishOAuthIfNeeded(supabase);
+          supabase.auth.onAuthStateChange(() => refreshUi(supabase));
+          await refreshUi(supabase);
+        } else {
+          status("Enter Supabase URL + anon key, then Save.", "");
+          setOut({ hint: "Save config, then Sign in with Google." });
+        }
+      } catch (e) {
+        status(e.message || String(e), "err");
+      }
+    </script>
+  </body>
+</html>

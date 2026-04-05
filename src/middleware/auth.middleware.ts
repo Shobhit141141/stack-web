@@ -24,6 +24,8 @@ export async function requireAuth(
       return;
     }
     req.supabaseAuthUser = user;
+    req.user = { id: user.id };
+    req.accessToken = token;
     next();
   } catch (err) {
     next(err);

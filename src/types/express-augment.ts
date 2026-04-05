@@ -4,6 +4,9 @@ declare global {
   namespace Express {
     interface Request {
       supabaseAuthUser?: SupabaseAuthUser;
+      user?: { id: string };
+      /** Bearer token from `Authorization` (set by `requireAuth`). */
+      accessToken?: string;
     }
   }
 }
