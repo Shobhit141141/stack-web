@@ -147,6 +147,26 @@
         statusEl.className = cls || "";
       }
 
+      async function copyToClipboard(text) {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          const ok = document.execCommand("copy");
+          if (!ok) throw new Error("copy command failed");
+        } finally {
+          document.body.removeChild(ta);
+        }
+      }
+
       function client() {
         const url = urlIn.value.trim();
         const key = anonIn.value.trim();
@@ -225,10 +245,19 @@
           });
           const body = await res.json().catch(() => ({}));
           setOut({ status: res.status, body });
-          status(
-            res.ok ? "/auth/me OK" : `/auth/me failed (${res.status})`,
-            res.ok ? "ok" : "err"
-          );
+          if (res.ok) {
+            try {
+              await copyToClipboard(session.access_token);
+              status("/auth/me OK — access token copied to clipboard.", "ok");
+            } catch (clipErr) {
+              status(
+                `/auth/me OK — clipboard failed: ${clipErr.message || clipErr}. Token is in session (use DevTools).`,
+                "err"
+              );
+            }
+          } else {
+            status(`/auth/me failed (${res.status})`, "err");
+          }
         } catch (e) {
           status(e.message || String(e), "err");
           setOut(String(e));

@@ -1,7 +1,7 @@
 import express from "express";
-import { corsMiddleware } from "./middleware/cors.js";
-import { errorHandler } from "./middleware/error-handler.js";
-import { requestLogger } from "./middleware/request-logger.js";
+import { corsMiddleware } from "./middleware/cors.middleware.js";
+import { errorHandler } from "./middleware/error-handler.middleware.js";
+import { requestLogger } from "./middleware/request-logger.middleware.js";
 import authRoutes from "./routes/auth.routes.js";
 import fileRoutes from "./routes/file.routes.js";
 import routes from "./routes/index.routes.js";

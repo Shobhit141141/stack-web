@@ -1,5 +1,5 @@
 import multer from "multer";
-import { HttpError } from "./http-error.js";
+import { HttpError } from "../utils/http-error.js";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 

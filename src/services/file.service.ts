@@ -1,4 +1,12 @@
+import { env } from "../config/env.js";
 import { HttpError } from "../utils/http-error.js";
+import {
+  buildFileOrderBy,
+  buildFileWhere,
+  publicFileTypeLabel,
+  sizeToSafeNumber,
+  type ParsedFileListQuery,
+} from "../utils/file-query-parser.js";
 import { log } from "../utils/logger/index.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as storageService from "./storage.service.js";
@@ -87,4 +95,85 @@ export async function uploadUserFile(params: {
       .catch(() => {});
     throw e;
   }
+}
+
+export async function listUserFiles(
+  userId: string,
+  parsed: ParsedFileListQuery
+): Promise<{
+  files: Array<{
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    createdAt: string;
+  }>;
+  pagination: { page: number; total: number };
+}> {
+  const where = buildFileWhere(userId, parsed);
+  const orderBy = buildFileOrderBy(parsed.sort);
+  const skip = (parsed.page - 1) * parsed.limit;
+  const [rows, total] = await Promise.all([
+    fileRepository.findFilesForList({
+      where,
+      orderBy,
+      skip,
+      take: parsed.limit,
+    }),
+    fileRepository.countFiles(where),
+  ]);
+  return {
+    files: rows.map((row) => ({
+      id: row.id,
+      name: row.originalName,
+      type: publicFileTypeLabel(row.originalName, row.mimeType),
+      size: sizeToSafeNumber(row.size),
+      createdAt: row.createdAt.toISOString(),
+    })),
+    pagination: {
+      page: parsed.page,
+      total,
+    },
+  };
+}
+
+export async function getUserFileWithSignedUrl(params: {
+  accessToken: string;
+  userId: string;
+  fileId: string;
+}): Promise<{
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  createdAt: string;
+  signedUrl: string;
+}> {
+  const row = await fileRepository.findFileByIdForUser(
+    params.fileId,
+    params.userId
+  );
+  if (!row) {
+    throw new HttpError(404, "File not found");
+  }
+
+  let signedUrl: string;
+  try {
+    signedUrl = await storageService.createSignedReadUrl({
+      accessToken: params.accessToken,
+      storagePath: row.storagePath,
+      expiresIn: env.SIGNED_URL_EXPIRES_SECONDS,
+    });
+  } catch {
+    throw new HttpError(502, "Could not generate download link");
+  }
+
+  return {
+    id: row.id,
+    name: row.originalName,
+    type: publicFileTypeLabel(row.originalName, row.mimeType),
+    size: sizeToSafeNumber(row.size),
+    createdAt: row.createdAt.toISOString(),
+    signedUrl,
+  };
 }
