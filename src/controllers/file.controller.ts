@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { scheduleExtractionAfterUpload } from "../services/extraction.service.js";
 import * as fileService from "../services/file.service.js";
 import {
   parseFileListQuery,
@@ -104,6 +105,12 @@ export async function uploadFile(
       name: row.originalName,
       storagePath: row.storagePath,
       createdAt: row.createdAt.toISOString(),
+    });
+    scheduleExtractionAfterUpload({
+      fileId: row.id,
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      originalName: file.originalname,
     });
   } catch (e) {
     next(e);

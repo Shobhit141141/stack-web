@@ -45,4 +45,6 @@ export const env = {
 
   DATABASE_URL: process.env.DATABASE_URL,
   DIRECT_URL: process.env.DIRECT_URL,
+
+  OCR_ENABLED: process.env.OCR_ENABLED === "true",
 } as const;

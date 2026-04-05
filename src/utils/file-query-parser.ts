@@ -1,4 +1,9 @@
 import type { Prisma } from "@prisma/client";
+import {
+  FILE_SHORT_TYPE_TO_MIME,
+  isFileShortType,
+  type FileShortType,
+} from "../constants/upload-file-types.js";
 import { HttpError } from "./http-error.js";
 
 export const FILE_LIST_SORT_VALUES = [
@@ -12,13 +17,8 @@ export const FILE_LIST_SORT_VALUES = [
 
 export type FileListSort = (typeof FILE_LIST_SORT_VALUES)[number];
 
-const TYPE_FILTER_VALUES = ["pdf", "docx"] as const;
-export type FileTypeFilter = (typeof TYPE_FILTER_VALUES)[number];
-
-const MIME_BY_SHORT_TYPE: Record<FileTypeFilter, string> = {
-  pdf: "application/pdf",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-};
+/** Alias for query `type=` param; same as `FileShortType`. */
+export type FileTypeFilter = FileShortType;
 
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
@@ -29,7 +29,7 @@ export type ParsedFileListQuery = {
   limit: number;
   sort: FileListSort;
   q?: string;
-  type?: FileTypeFilter;
+  type?: FileShortType;
   from?: Date;
   to?: Date;
   minSize?: bigint;
@@ -93,13 +93,13 @@ export function parseFileListQuery(qs: Record<string, unknown>): ParsedFileListQ
     }
   }
 
-  let type: FileTypeFilter | undefined;
+  let type: FileShortType | undefined;
   if (qs.type !== undefined && qs.type !== null && String(qs.type) !== "") {
     const t = String(qs.type).toLowerCase();
-    if (!TYPE_FILTER_VALUES.includes(t as FileTypeFilter)) {
+    if (!isFileShortType(t)) {
       throw new HttpError(400, "Invalid type filter (use pdf or docx)");
     }
-    type = t as FileTypeFilter;
+    type = t;
   }
 
   let from: Date | undefined;
@@ -146,7 +146,7 @@ export function buildFileWhere(
   }
 
   if (parsed.type) {
-    and.push({ mimeType: MIME_BY_SHORT_TYPE[parsed.type] });
+    and.push({ mimeType: FILE_SHORT_TYPE_TO_MIME[parsed.type] });
   }
 
   if (parsed.from || parsed.to) {
@@ -177,8 +177,8 @@ export function publicFileTypeLabel(originalName: string, mimeType: string): str
   const dot = lower.lastIndexOf(".");
   const ext = dot >= 0 ? lower.slice(dot + 1) : "";
   if (ext === "pdf" || ext === "docx") return ext;
-  if (mimeType === MIME_BY_SHORT_TYPE.pdf) return "pdf";
-  if (mimeType === MIME_BY_SHORT_TYPE.docx) return "docx";
+  if (mimeType === FILE_SHORT_TYPE_TO_MIME.pdf) return "pdf";
+  if (mimeType === FILE_SHORT_TYPE_TO_MIME.docx) return "docx";
   const slash = mimeType.indexOf("/");
   return slash === -1 ? "file" : mimeType.slice(slash + 1).slice(0, 32);
 }

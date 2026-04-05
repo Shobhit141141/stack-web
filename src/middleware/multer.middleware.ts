@@ -1,12 +1,8 @@
 import multer from "multer";
+import { UPLOAD_ALLOWED_MIME_TYPES } from "../constants/upload-file-types.js";
 import { HttpError } from "../utils/http-error.js";
 
 const MAX_BYTES = 10 * 1024 * 1024;
-
-const ALLOWED_MIMES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
 
 function extAllowed(name: string): boolean {
   const lower = name.toLowerCase();
@@ -17,7 +13,10 @@ export const uploadFileMemory = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_BYTES },
   fileFilter(_req, file, cb) {
-    if (ALLOWED_MIMES.has(file.mimetype) || extAllowed(file.originalname)) {
+    if (
+      UPLOAD_ALLOWED_MIME_TYPES.has(file.mimetype) ||
+      extAllowed(file.originalname)
+    ) {
       cb(null, true);
       return;
     }
