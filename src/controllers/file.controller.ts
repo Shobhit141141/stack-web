@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 import { scheduleExtractionAfterUpload } from "../services/extraction.service.js";
 import * as fileService from "../services/file.service.js";
+import { log } from "../utils/logger/index.js";
+import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import {
   parseFileListQuery,
   parseSearchQuery,
@@ -106,6 +108,15 @@ export async function uploadFile(
       storagePath: row.storagePath,
       createdAt: row.createdAt.toISOString(),
     });
+    log.info(
+      filePipelinePanel("FILE PIPELINE · upload · HTTP 201", row.id, {
+        name: row.originalName,
+        mime: file.mimetype,
+        sizeBytes: file.buffer.length,
+        storagePath: row.storagePath,
+        next: "response sent; background extract/index if PDF/DOCX",
+      })
+    );
     scheduleExtractionAfterUpload({
       fileId: row.id,
       buffer: file.buffer,

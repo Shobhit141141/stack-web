@@ -27,6 +27,16 @@ function assertProductionEnv(): void {
 
 assertProductionEnv();
 
+export type EmbeddingProvider = "openai" | "google";
+
+function parseEmbeddingProvider(): EmbeddingProvider {
+  const v = process.env.EMBEDDING_PROVIDER?.trim().toLowerCase() ?? "";
+  if (v === "google" || v === "gemini") return "google";
+  return "openai";
+}
+
+const embeddingProvider = parseEmbeddingProvider();
+
 export const env = {
   NODE_ENV: nodeEnv,
   IS_PRODUCTION: nodeEnv === "production",
@@ -47,4 +57,34 @@ export const env = {
   DIRECT_URL: process.env.DIRECT_URL,
 
   OCR_ENABLED: process.env.OCR_ENABLED === "true",
+
+  /** `openai` (default) or `google` / `gemini` for Gemini Developer API (AI Studio key). */
+  EMBEDDING_PROVIDER: embeddingProvider,
+
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+
+  /** OpenAI embeddings model when `EMBEDDING_PROVIDER=openai`. */
+  EMBEDDING_MODEL:
+    process.env.EMBEDDING_MODEL?.trim() || "text-embedding-3-small",
+
+  /** Google AI Studio / Gemini API key when `EMBEDDING_PROVIDER=google`. */
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+
+  /** Gemini embedding model id when `EMBEDDING_PROVIDER=google` (e.g. text-embedding-004, gemini-embedding-001). */
+  GOOGLE_EMBEDDING_MODEL:
+    process.env.GOOGLE_EMBEDDING_MODEL?.trim() || "text-embedding-004",
 } as const;
+
+export function hasEmbeddingApiKey(): boolean {
+  if (env.EMBEDDING_PROVIDER === "google") {
+    return Boolean(env.GEMINI_API_KEY?.trim());
+  }
+  return Boolean(env.OPENAI_API_KEY?.trim());
+}
+
+export function embeddingRuntimeLabel(): string {
+  if (env.EMBEDDING_PROVIDER === "google") {
+    return `google:${env.GOOGLE_EMBEDDING_MODEL}`;
+  }
+  return `openai:${env.EMBEDDING_MODEL}`;
+}

@@ -34,11 +34,27 @@ model File {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks FileChunk[]
 
   @@index([userId])
   @@index([originalName])
   @@index([createdAt])
   @@index([userId, createdAt])
   @@map("files")
+}
+
+model FileChunk {
+  id         String                @id @default(uuid()) @db.Uuid
+  fileId     String                @map("file_id") @db.Uuid
+  content    String
+  embedding  Unsupported("vector(1536)")
+  chunkIndex Int                   @map("chunk_index") 
+  tokenCount Int                   @map("token_count")
+  createdAt  DateTime              @default(now()) @map("created_at")
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId])
+  @@map("file_chunks")
 }

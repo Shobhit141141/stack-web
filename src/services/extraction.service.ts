@@ -4,7 +4,12 @@ import { extractDocxText } from "../utils/extraction/docx.util.js";
 import { extractPdfText } from "../utils/extraction/pdf.util.js";
 import { tryOcrPdf } from "../utils/extraction/ocr.util.js";
 import { cleanExtractedText } from "../utils/extraction/text-clean.util.js";
+import {
+  FILE_PIPELINE_RULE,
+  filePipelinePanel,
+} from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
+import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
 
 export type ExtractResult = {
   text: string;
@@ -87,8 +92,22 @@ export function scheduleExtractionAfterUpload(ctx: {
   originalName: string;
 }): void {
   if (ctx.mimeType !== PDF_MIME && ctx.mimeType !== DOCX_MIME) {
+    log.info(
+      filePipelinePanel("FILE PIPELINE · extract · skipped", ctx.fileId, {
+        mime: ctx.mimeType,
+        reason: "only application/pdf and DOCX run text extraction",
+      })
+    );
     return;
   }
+
+  log.info(
+    filePipelinePanel("FILE PIPELINE · extract · queued", ctx.fileId, {
+      mime: ctx.mimeType,
+      originalName: ctx.originalName,
+      bufferBytes: ctx.buffer.length,
+    })
+  );
 
   setImmediate(() => {
     extractText({
@@ -98,15 +117,32 @@ export function scheduleExtractionAfterUpload(ctx: {
     })
       .then((r) => {
         log.info(
-          `Extraction done fileId=${ctx.fileId} cleanedChars=${r.cleanedText.length} likelyScanned=${r.likelyScanned} ocr=${r.ocrUsed}`
+          filePipelinePanel("FILE PIPELINE · extract · done", ctx.fileId, {
+            cleanedChars: r.cleanedText.length,
+            rawChars: r.text.length,
+            likelyScanned: r.likelyScanned,
+            ocrUsed: r.ocrUsed,
+            next: "chunk → embed → DB (setImmediate)",
+          })
         );
         log.info(
-          `Extraction text fileId=${ctx.fileId}\n${excerptForLog(r.cleanedText)}`
+          [
+            filePipelinePanel("FILE PIPELINE · extract · text preview", ctx.fileId, {
+              note: `up to ${EXTRACTION_LOG_TEXT_MAX} chars`,
+            }),
+            excerptForLog(r.cleanedText),
+            FILE_PIPELINE_RULE,
+          ].join("\n")
         );
+        scheduleDocumentIndexAfterExtraction(ctx.fileId, r.cleanedText);
       })
       .catch((e) => {
         const msg = e instanceof Error ? e.message : String(e);
-        log.warn(`Extraction failed fileId=${ctx.fileId}: ${msg}`);
+        log.warn(
+          filePipelinePanel("FILE PIPELINE · extract · failed", ctx.fileId, {
+            error: msg,
+          })
+        );
       });
   });
 }
