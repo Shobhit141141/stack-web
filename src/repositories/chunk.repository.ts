@@ -10,6 +10,10 @@ export type ChunkInsertRow = {
   tokenCount: number;
 };
 
+function sanitizeChunkContentForPg(text: string): string {
+  return text.replace(/\u0000/g, "");
+}
+
 function assertEmbeddingShape(v: number[]): void {
   if (v.length !== EMBEDDING_DIM) {
     throw new Error(`Expected embedding length ${EMBEDDING_DIM}, got ${v.length}`);
@@ -28,7 +32,7 @@ function vectorSql(embedding: number[]): Prisma.Sql {
   return Prisma.raw(`'[${inner}]'::vector`);
 }
 
-  // replace all chunks for a file in one transaction: delete existing, then a single multi-row INSERT.
+// replace all chunks for a file in one transaction: delete existing, then a single multi-row INSERT.
 export async function replaceFileChunks(fileId: string, rows: ChunkInsertRow[]): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.fileChunk.deleteMany({ where: { fileId } });
@@ -36,9 +40,9 @@ export async function replaceFileChunks(fileId: string, rows: ChunkInsertRow[]):
 
     const fragments = rows.map(
       (r) =>
-        Prisma.sql`(${randomUUID()}::uuid, ${fileId}::uuid, ${r.content}, ${vectorSql(
-          r.embedding
-        )}, ${r.chunkIndex}::int, ${r.tokenCount}::int)`
+        Prisma.sql`(${randomUUID()}::uuid, ${fileId}::uuid, ${sanitizeChunkContentForPg(
+          r.content
+        )}, ${vectorSql(r.embedding)}, ${r.chunkIndex}::int, ${r.tokenCount}::int)`
     );
 
     await tx.$executeRaw`

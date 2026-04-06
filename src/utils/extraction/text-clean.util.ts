@@ -1,7 +1,8 @@
 /** Normalize whitespace and strip common junk; safe for downstream chunking. */
 export function cleanExtractedText(raw: string): string {
   if (!raw) return "";
-  let s = raw.replace(/\u00a0/g, " ");
+  let s = raw.replace(/\u0000/g, "");
+  s = s.replace(/\u00a0/g, " ");
   s = s.replace(/[\u200b-\u200d\ufeff]/g, "");
   s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   s = s.replace(/[^\S\n]+/g, " ");
