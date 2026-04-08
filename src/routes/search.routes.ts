@@ -1,8 +1,9 @@
 import { Router } from "express";
-import * as authController from "../controllers/auth.controller.js";
+import * as searchController from "../controllers/search.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 
 const router = Router();
-router.get("/me", requireAuth, authController.getMe);
+
+router.get("/", requireAuth, searchController.getSemanticSearch);
 
 export default router;

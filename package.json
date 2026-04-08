@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "test-pdfs:generate": "node scripts/generate-test-pdfs.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.48.0",
@@ -34,6 +35,7 @@
     "@types/multer": "^2.1.0",
     "@types/node": "^22.10.0",
     "@types/pdf-parse": "^1.1.5",
+    "pdf-lib": "^1.17.1",
     "prisma": "^6.19.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

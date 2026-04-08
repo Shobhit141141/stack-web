@@ -53,3 +53,23 @@ export async function findFileByIdForUser(id: string, userId: string) {
     },
   });
 }
+
+const searchMetaSelect = {
+  id: true,
+  originalName: true,
+  mimeType: true,
+  createdAt: true,
+} as const;
+
+export type FileSearchMetaRow = Prisma.FileGetPayload<{ select: typeof searchMetaSelect }>;
+
+export async function findFilesByIdsForUser(
+  userId: string,
+  ids: string[]
+): Promise<FileSearchMetaRow[]> {
+  if (ids.length === 0) return [];
+  return prisma.file.findMany({
+    where: { userId, id: { in: ids } },
+    select: searchMetaSelect,
+  });
+}

@@ -4,3 +4,9 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
   return createTextEmbeddings(texts);
 }
+
+export async function embedQuery(text: string): Promise<number[]> {
+  const [v] = await embedTexts([text]);
+  if (!v) throw new Error("Expected query embedding");
+  return v;
+}

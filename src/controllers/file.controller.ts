@@ -88,41 +88,70 @@ export async function uploadFile(
     return;
   }
 
-  const file = req.file;
-  if (!file?.buffer) {
+  const files = Array.isArray(req.files) ? req.files : [];
+  if (files.length === 0 || files.some((f) => !f.buffer?.length)) {
+    log.warn(
+      `400 POST ${req.originalUrl} — Missing file(s): multipart field name must be "file" (repeat for multiple PDF/DOCX). Content-Type was ${String(
+        req.headers["content-type"] ?? "(none)"
+      )}`
+    );
     res.status(400).json({ error: "Missing file" });
     return;
   }
 
   try {
-    const row = await fileService.uploadUserFile({
-      accessToken: token,
-      userId,
-      originalName: file.originalname,
-      mimeType: file.mimetype,
-      buffer: file.buffer,
-    });
-    res.status(201).json({
-      id: row.id,
-      name: row.originalName,
-      storagePath: row.storagePath,
-      createdAt: row.createdAt.toISOString(),
-    });
-    log.info(
-      filePipelinePanel("FILE PIPELINE · upload · HTTP 201", row.id, {
+    const created: Array<{
+      id: string;
+      name: string;
+      storagePath: string;
+      createdAt: string;
+    }> = [];
+
+    for (const file of files) {
+      const row = await fileService.uploadUserFile({
+        accessToken: token,
+        userId,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        buffer: file.buffer,
+      });
+      const item = {
+        id: row.id,
         name: row.originalName,
-        mime: file.mimetype,
-        sizeBytes: file.buffer.length,
         storagePath: row.storagePath,
-        next: "response sent; background extract/index if PDF/DOCX",
-      })
-    );
-    scheduleExtractionAfterUpload({
-      fileId: row.id,
-      buffer: file.buffer,
-      mimeType: file.mimetype,
-      originalName: file.originalname,
-    });
+        createdAt: row.createdAt.toISOString(),
+      };
+      created.push(item);
+
+      log.info(
+        filePipelinePanel("FILE PIPELINE · upload · HTTP 201", row.id, {
+          name: row.originalName,
+          mime: file.mimetype,
+          sizeBytes: file.buffer.length,
+          storagePath: row.storagePath,
+          batchIndex: `${created.length}/${files.length}`,
+          next: "response after all parts; background extract/index if PDF/DOCX",
+        })
+      );
+      scheduleExtractionAfterUpload({
+        fileId: row.id,
+        buffer: file.buffer,
+        mimeType: file.mimetype,
+        originalName: file.originalname,
+      });
+    }
+
+    if (created.length === 1) {
+      const one = created[0]!;
+      res.status(201).json({
+        id: one.id,
+        name: one.name,
+        storagePath: one.storagePath,
+        createdAt: one.createdAt,
+      });
+    } else {
+      res.status(201).json({ files: created });
+    }
   } catch (e) {
     next(e);
   }

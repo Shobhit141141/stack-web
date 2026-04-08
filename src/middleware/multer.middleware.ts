@@ -3,6 +3,8 @@ import { UPLOAD_ALLOWED_MIME_TYPES } from "../constants/upload-file-types.js";
 import { HttpError } from "../utils/http-error.js";
 
 const MAX_BYTES = 10 * 1024 * 1024;
+// Max files per request
+export const UPLOAD_MAX_FILES_PER_REQUEST = 20;
 
 function extAllowed(name: string): boolean {
   const lower = name.toLowerCase();
@@ -22,4 +24,4 @@ export const uploadFileMemory = multer({
     }
     cb(new HttpError(400, "Only PDF and DOCX files are allowed"));
   },
-}).single("file");
+}).array("file", UPLOAD_MAX_FILES_PER_REQUEST);

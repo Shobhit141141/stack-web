@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { EMBEDDING_DIM } from "../constants/embeddings.js";
 import { prisma } from "./db.js";
+import { vectorSql } from "./pgvector.util.js";
 
 export type ChunkInsertRow = {
   content: string;
@@ -12,24 +12,6 @@ export type ChunkInsertRow = {
 
 function sanitizeChunkContentForPg(text: string): string {
   return text.replace(/\u0000/g, "");
-}
-
-function assertEmbeddingShape(v: number[]): void {
-  if (v.length !== EMBEDDING_DIM) {
-    throw new Error(`Expected embedding length ${EMBEDDING_DIM}, got ${v.length}`);
-  }
-  for (let i = 0; i < v.length; i++) {
-    if (!Number.isFinite(v[i])) {
-      throw new Error("Embedding contains non-finite value");
-    }
-  }
-}
-
-// safe pgvector literal: only commas and numeric characters from validated floats.
-function vectorSql(embedding: number[]): Prisma.Sql {
-  assertEmbeddingShape(embedding);
-  const inner = embedding.join(",");
-  return Prisma.raw(`'[${inner}]'::vector`);
 }
 
 // replace all chunks for a file in one transaction: delete existing, then a single multi-row INSERT.
