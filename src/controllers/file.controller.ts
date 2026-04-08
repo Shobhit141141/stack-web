@@ -7,7 +7,11 @@ import {
   parseFileListQuery,
   parseSearchQuery,
 } from "../utils/file-query-parser.js";
+import { mapWithConcurrency } from "../utils/map-with-concurrency.js";
 import { isUuid } from "../utils/uuid.js";
+
+/** Batches of this size or smaller run fully in parallel; larger batches cap at this concurrency. */
+const UPLOAD_CONCURRENCY = 5;
 
 export async function listFiles(
   req: Request,
@@ -107,22 +111,30 @@ export async function uploadFile(
       createdAt: string;
     }> = [];
 
-    for (const file of files) {
-      const uploaded = await fileService.uploadUserFile({
+    const uploadOne = (file: (typeof files)[number]) =>
+      fileService.uploadUserFile({
         accessToken: token,
         userId,
         originalName: file.originalname,
         mimeType: file.mimetype,
         buffer: file.buffer,
       });
+
+    const outcomes =
+      files.length <= UPLOAD_CONCURRENCY
+        ? await Promise.all(files.map((file) => uploadOne(file)))
+        : await mapWithConcurrency(files, UPLOAD_CONCURRENCY, uploadOne);
+
+    for (let i = 0; i < outcomes.length; i++) {
+      const uploaded = outcomes[i]!;
       const row = uploaded.file;
-      const item = {
+      const file = files[i]!;
+      created.push({
         id: row.id,
         name: row.originalName,
         storagePath: row.storagePath,
         createdAt: row.createdAt.toISOString(),
-      };
-      created.push(item);
+      });
 
       log.info(
         filePipelinePanel("FILE PIPELINE · upload · HTTP 201", row.id, {
@@ -130,7 +142,7 @@ export async function uploadFile(
           mime: file.mimetype,
           sizeBytes: file.buffer.length,
           storagePath: row.storagePath,
-          batchIndex: `${created.length}/${files.length}`,
+          batchIndex: `${i + 1}/${files.length}`,
           next: "response after all parts; background extract/index if PDF/DOCX",
         })
       );
