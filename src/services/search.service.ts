@@ -14,11 +14,19 @@ function truncateSnippet(text: string): string {
 }
 
 export type SemanticSearchResultItem = {
+  contentId: string;
   fileId: string;
   fileName: string;
   type: string;
   createdAt: string;
+  score: number;
   snippet: string;
+  duplicates: Array<{
+    fileId: string;
+    fileName: string;
+    type: string;
+    createdAt: string;
+  }>;
 };
 
 export async function semanticSearchUserFiles(
@@ -32,32 +40,53 @@ export async function semanticSearchUserFiles(
     limit: NEAREST_CHUNK_LIMIT,
   });
 
-  const seen = new Map<string, string>();
+  const seen = new Map<string, { snippet: string; score: number }>();
   for (const row of chunks) {
-    if (seen.has(row.fileId)) continue;
-    seen.set(row.fileId, truncateSnippet(row.content));
+    if (seen.has(row.contentId)) continue;
+    seen.set(row.contentId, {
+      snippet: truncateSnippet(row.content),
+      score: 1 / (1 + Math.max(row.distance, 0)),
+    });
     if (seen.size >= MAX_RESULTS) break;
   }
 
-  const orderedIds = [...seen.keys()];
-  if (orderedIds.length === 0) {
+  const orderedContentIds = [...seen.keys()];
+  if (orderedContentIds.length === 0) {
     return { results: [] };
   }
 
-  const files = await fileRepository.findFilesByIdsForUser(userId, orderedIds);
-  const byId = new Map(files.map((f) => [f.id, f]));
+  const files = await fileRepository.findFilesByContentIdsForUser(
+    userId,
+    orderedContentIds
+  );
+  const byContent = new Map<string, typeof files>();
+  for (const f of files) {
+    const bucket = byContent.get(f.contentId) ?? [];
+    bucket.push(f);
+    byContent.set(f.contentId, bucket);
+  }
 
   const results: SemanticSearchResultItem[] = [];
-  for (const id of orderedIds) {
-    const f = byId.get(id);
-    if (!f) continue;
-    const snippet = seen.get(id) ?? "";
+  for (const contentId of orderedContentIds) {
+    const group = byContent.get(contentId) ?? [];
+    if (group.length === 0) continue;
+    group.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const primary = group[0]!;
+    const match = seen.get(contentId)!;
     results.push({
-      fileId: f.id,
-      fileName: f.originalName,
-      type: publicFileTypeLabel(f.originalName, f.mimeType),
-      createdAt: f.createdAt.toISOString(),
-      snippet,
+      contentId,
+      fileId: primary.id,
+      fileName: primary.originalName,
+      type: publicFileTypeLabel(primary.originalName, primary.mimeType),
+      createdAt: primary.createdAt.toISOString(),
+      score: match.score,
+      snippet: match.snippet,
+      duplicates: group.slice(1).map((f) => ({
+        fileId: f.id,
+        fileName: f.originalName,
+        type: publicFileTypeLabel(f.originalName, f.mimeType),
+        createdAt: f.createdAt.toISOString(),
+      })),
     });
   }
 

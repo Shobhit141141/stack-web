@@ -23,9 +23,21 @@ model User {
   @@map("users")
 }
 
+model Content {
+  id        String   @id @default(uuid()) @db.Uuid
+  hash      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  files  File[]
+  chunks FileChunk[]
+
+  @@map("contents")
+}
+
 model File {
   id          String   @id @default(uuid()) @db.Uuid
   userId      String   @map("user_id") @db.Uuid
+  contentId   String   @map("content_id") @db.Uuid
   originalName String  @map("name")
   mimeType    String   @map("type")
   size        BigInt
@@ -34,10 +46,11 @@ model File {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chunks FileChunk[]
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentRef Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([contentId])
   @@index([originalName])
   @@index([createdAt])
   @@index([userId, createdAt])
@@ -46,15 +59,15 @@ model File {
 
 model FileChunk {
   id         String                @id @default(uuid()) @db.Uuid
-  fileId     String                @map("file_id") @db.Uuid
+  contentId  String                @map("content_id") @db.Uuid
   content    String
   embedding  Unsupported("vector(1536)")
   chunkIndex Int                   @map("chunk_index") 
   tokenCount Int                   @map("token_count")
   createdAt  DateTime              @default(now()) @map("created_at")
 
-  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  contentRef Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
 
-  @@index([fileId])
+  @@index([contentId])
   @@map("file_chunks")
 }

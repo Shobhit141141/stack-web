@@ -108,13 +108,14 @@ export async function uploadFile(
     }> = [];
 
     for (const file of files) {
-      const row = await fileService.uploadUserFile({
+      const uploaded = await fileService.uploadUserFile({
         accessToken: token,
         userId,
         originalName: file.originalname,
         mimeType: file.mimetype,
         buffer: file.buffer,
       });
+      const row = uploaded.file;
       const item = {
         id: row.id,
         name: row.originalName,
@@ -133,12 +134,14 @@ export async function uploadFile(
           next: "response after all parts; background extract/index if PDF/DOCX",
         })
       );
-      scheduleExtractionAfterUpload({
-        fileId: row.id,
-        buffer: file.buffer,
-        mimeType: file.mimetype,
-        originalName: file.originalname,
-      });
+      if (uploaded.shouldIndexContent) {
+        scheduleExtractionAfterUpload({
+          contentId: uploaded.contentId,
+          buffer: file.buffer,
+          mimeType: file.mimetype,
+          originalName: file.originalname,
+        });
+      }
     }
 
     if (created.length === 1) {

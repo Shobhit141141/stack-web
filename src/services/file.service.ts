@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { createHash } from "node:crypto";
 import { HttpError } from "../utils/http-error.js";
 import {
   buildFileOrderBy,
@@ -52,7 +53,11 @@ export async function uploadUserFile(params: {
   originalName: string;
   mimeType: string;
   buffer: Buffer;
-}) {
+}): Promise<{
+  file: Awaited<ReturnType<typeof fileRepository.createFileRecord>>;
+  shouldIndexContent: boolean;
+  contentId: string;
+}> {
   if (params.buffer.length === 0) {
     throw new HttpError(400, "Empty file");
   }
@@ -61,6 +66,7 @@ export async function uploadUserFile(params: {
     params.userId,
     params.originalName
   );
+  const contentHash = createHash("sha256").update(params.buffer).digest("hex");
   const name =
     params.originalName.replace(/^.*[/\\]/, "") || params.originalName || "file";
 
@@ -82,13 +88,21 @@ export async function uploadUserFile(params: {
   }
 
   try {
-    return await fileRepository.createFileRecord({
+    let content = await fileRepository.findContentByHash(contentHash);
+    let shouldIndexContent = false;
+    if (!content) {
+      content = await fileRepository.createContent(contentHash);
+      shouldIndexContent = true;
+    }
+    const file = await fileRepository.createFileRecord({
       userId: params.userId,
+      contentId: content.id,
       originalName: name,
       mimeType: params.mimeType,
       size: params.buffer.length,
       storagePath,
     });
+    return { file, shouldIndexContent, contentId: content.id };
   } catch (e) {
     await storageService
       .deleteFromFilesBucket(params.accessToken, storagePath)

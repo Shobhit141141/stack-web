@@ -1,4 +1,4 @@
-import type { File as FileRow, Prisma } from "@prisma/client";
+import { type File as FileRow, Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
 
 const listSelect = {
@@ -13,12 +13,29 @@ export type FileListRow = Prisma.FileGetPayload<{ select: typeof listSelect }>;
 
 export async function createFileRecord(data: {
   userId: string;
+  contentId: string;
   originalName: string;
   mimeType: string;
   size: number;
   storagePath: string;
 }): Promise<FileRow> {
   return prisma.file.create({ data });
+}
+
+export async function findContentByHash(hash: string) {
+  const rows = await prisma.$queryRaw<{ id: string; hash: string }[]>`
+    SELECT id, hash FROM "contents" WHERE hash = ${hash}
+  `;
+  return rows[0] ?? null;
+}
+
+export async function createContent(hash: string) {
+  const rows = await prisma.$queryRaw<{ id: string; hash: string }[]>`
+    INSERT INTO "contents" ("id", "hash")
+    VALUES (gen_random_uuid(), ${hash})
+    RETURNING id, hash
+  `;
+  return rows[0]!;
 }
 
 export async function countFiles(where: Prisma.FileWhereInput): Promise<number> {
@@ -56,12 +73,19 @@ export async function findFileByIdForUser(id: string, userId: string) {
 
 const searchMetaSelect = {
   id: true,
+  contentId: true,
   originalName: true,
   mimeType: true,
   createdAt: true,
 } as const;
 
-export type FileSearchMetaRow = Prisma.FileGetPayload<{ select: typeof searchMetaSelect }>;
+export type FileSearchMetaRow = {
+  id: string;
+  contentId: string;
+  originalName: string;
+  mimeType: string;
+  createdAt: Date;
+};
 
 export async function findFilesByIdsForUser(
   userId: string,
@@ -72,4 +96,23 @@ export async function findFilesByIdsForUser(
     where: { userId, id: { in: ids } },
     select: searchMetaSelect,
   });
+}
+
+export async function findFilesByContentIdsForUser(
+  userId: string,
+  contentIds: string[]
+): Promise<FileSearchMetaRow[]> {
+  if (contentIds.length === 0) return [];
+  return prisma.$queryRaw<FileSearchMetaRow[]>`
+    SELECT f.id,
+           f.content_id AS "contentId",
+           f.name AS "originalName",
+           f.type AS "mimeType",
+           f.created_at AS "createdAt"
+    FROM "files" f
+    WHERE f.user_id = ${userId}::uuid
+      AND f.content_id IN (${Prisma.join(
+        contentIds.map((cid) => Prisma.sql`${cid}::uuid`)
+      )})
+  `;
 }

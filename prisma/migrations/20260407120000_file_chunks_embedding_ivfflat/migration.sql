@@ -2,4 +2,4 @@
 CREATE INDEX IF NOT EXISTS "file_chunks_embedding_ivfflat_idx"
 ON "file_chunks"
 USING ivfflat ("embedding" vector_l2_ops)
-WITH (lists = 100);
+WITH (lists = 10);

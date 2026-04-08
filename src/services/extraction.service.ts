@@ -86,14 +86,14 @@ export async function extractText(file: {
 
 
 export function scheduleExtractionAfterUpload(ctx: {
-  fileId: string;
+  contentId: string;
   buffer: Buffer;
   mimeType: string;
   originalName: string;
 }): void {
   if (ctx.mimeType !== PDF_MIME && ctx.mimeType !== DOCX_MIME) {
     log.info(
-      filePipelinePanel("FILE PIPELINE · extract · skipped", ctx.fileId, {
+      filePipelinePanel("FILE PIPELINE · extract · skipped", ctx.contentId, {
         mime: ctx.mimeType,
         reason: "only application/pdf and DOCX run text extraction",
       })
@@ -102,7 +102,7 @@ export function scheduleExtractionAfterUpload(ctx: {
   }
 
   log.info(
-    filePipelinePanel("FILE PIPELINE · extract · queued", ctx.fileId, {
+    filePipelinePanel("FILE PIPELINE · extract · queued", ctx.contentId, {
       mime: ctx.mimeType,
       originalName: ctx.originalName,
       bufferBytes: ctx.buffer.length,
@@ -117,7 +117,7 @@ export function scheduleExtractionAfterUpload(ctx: {
     })
       .then((r) => {
         log.info(
-          filePipelinePanel("FILE PIPELINE · extract · done", ctx.fileId, {
+          filePipelinePanel("FILE PIPELINE · extract · done", ctx.contentId, {
             cleanedChars: r.cleanedText.length,
             rawChars: r.text.length,
             likelyScanned: r.likelyScanned,
@@ -127,19 +127,19 @@ export function scheduleExtractionAfterUpload(ctx: {
         );
         log.info(
           [
-            filePipelinePanel("FILE PIPELINE · extract · text preview", ctx.fileId, {
+            filePipelinePanel("FILE PIPELINE · extract · text preview", ctx.contentId, {
               note: `up to ${EXTRACTION_LOG_TEXT_MAX} chars`,
             }),
             excerptForLog(r.cleanedText),
             FILE_PIPELINE_RULE,
           ].join("\n")
         );
-        scheduleDocumentIndexAfterExtraction(ctx.fileId, r.cleanedText);
+        scheduleDocumentIndexAfterExtraction(ctx.contentId, r.cleanedText);
       })
       .catch((e) => {
         const msg = e instanceof Error ? e.message : String(e);
         log.warn(
-          filePipelinePanel("FILE PIPELINE · extract · failed", ctx.fileId, {
+          filePipelinePanel("FILE PIPELINE · extract · failed", ctx.contentId, {
             error: msg,
           })
         );
