@@ -1,7 +1,10 @@
+import { performance } from "node:perf_hooks";
 import * as embeddingService from "./embedding.service.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as searchRepository from "../repositories/search.repository.js";
 import { publicFileTypeLabel } from "../utils/file-query-parser.js";
+import { log } from "../utils/logger/index.js";
+import { searchApiPanel } from "../utils/search-log.util.js";
 
 const NEAREST_CHUNK_LIMIT = 30;
 const MAX_RESULTS = 10;
@@ -33,13 +36,21 @@ export async function semanticSearchUserFiles(
   userId: string,
   query: string
 ): Promise<{ results: SemanticSearchResultItem[] }> {
+  const t0 = performance.now();
+
+  const tEmbed = performance.now();
   const embedding = await embeddingService.embedQuery(query);
+  const embedMs = performance.now() - tEmbed;
+
+  const tVec = performance.now();
   const chunks = await searchRepository.findNearestChunksForUser({
     userId,
     embedding,
     limit: NEAREST_CHUNK_LIMIT,
   });
+  const vectorMs = performance.now() - tVec;
 
+  const tAsm = performance.now();
   const seen = new Map<string, { snippet: string; score: number }>();
   for (const row of chunks) {
     if (seen.has(row.contentId)) continue;
@@ -52,6 +63,22 @@ export async function semanticSearchUserFiles(
 
   const orderedContentIds = [...seen.keys()];
   if (orderedContentIds.length === 0) {
+    const assembleMs = performance.now() - tAsm;
+    const totalMs = performance.now() - t0;
+    log.info(
+      searchApiPanel({
+        userId,
+        queryChars: query.length,
+        embedMs,
+        vectorMs,
+        assembleMs,
+        totalMs,
+        chunksFetched: chunks.length,
+        distinctContents: 0,
+        resultsReturned: 0,
+        duplicateFilesListed: 0,
+      })
+    );
     return { results: [] };
   }
 
@@ -89,6 +116,28 @@ export async function semanticSearchUserFiles(
       })),
     });
   }
+
+  const duplicateFilesListed = results.reduce(
+    (n, r) => n + r.duplicates.length,
+    0
+  );
+  const assembleMs = performance.now() - tAsm;
+  const totalMs = performance.now() - t0;
+
+  log.info(
+    searchApiPanel({
+      userId,
+      queryChars: query.length,
+      embedMs,
+      vectorMs,
+      assembleMs,
+      totalMs,
+      chunksFetched: chunks.length,
+      distinctContents: seen.size,
+      resultsReturned: results.length,
+      duplicateFilesListed,
+    })
+  );
 
   return { results };
 }
