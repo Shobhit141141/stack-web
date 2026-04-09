@@ -116,3 +116,16 @@ export async function findFilesByContentIdsForUser(
       )})
   `;
 }
+
+// resolves file IDs to content IDs for that user. Omits missing IDs.
+export async function findContentIdsByFileIdsForUser(
+  userId: string,
+  fileIds: string[]
+): Promise<Map<string, string>> {
+  if (fileIds.length === 0) return new Map();
+  const rows = await prisma.file.findMany({
+    where: { userId, id: { in: fileIds } },
+    select: { id: true, contentId: true },
+  });
+  return new Map(rows.map((r) => [r.id, r.contentId]));
+}

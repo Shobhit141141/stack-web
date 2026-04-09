@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { EMBEDDING_DIM } from "../constants/embeddings.js";
 import { env } from "../config/env.js";
+import type { RagCompletionResult } from "../types/rag-completion.js";
 
 let client: GoogleGenAI | null = null;
 
@@ -48,4 +49,58 @@ export async function googleCreateEmbeddings(params: {
     }
     return normalizeToStorageDim(values);
   });
+}
+
+// single query embedding (RETRIEVAL_QUERY) for vector search
+export async function googleEmbedQueryText(params: {
+  model: string;
+  text: string;
+}): Promise<number[]> {
+  const ai = getGoogleGenAIClient();
+  const result = await ai.models.embedContent({
+    model: params.model,
+    contents: params.text,
+    config: {
+      taskType: "RETRIEVAL_QUERY",
+    },
+  });
+  const embeddings = result.embeddings;
+  const first = embeddings?.[0];
+  const values = first?.values;
+  if (!values?.length) {
+    throw new Error("Google query embedding missing values");
+  }
+  return normalizeToStorageDim(values);
+}
+
+export async function googleGenerateRagCompletion(params: {
+  model: string;
+  systemInstruction: string;
+  userMessage: string;
+  temperature: number;
+}): Promise<RagCompletionResult> {
+  const ai = getGoogleGenAIClient();
+  const response = await ai.models.generateContent({
+    model: params.model,
+    contents: params.userMessage,
+    config: {
+      systemInstruction: params.systemInstruction,
+      temperature: params.temperature,
+    },
+  });
+  const text = response.text?.trim();
+  if (!text) {
+    throw new Error("Gemini returned empty text");
+  }
+  const u = response.usageMetadata;
+  return {
+    text,
+    model: params.model,
+    modelVersion: response.modelVersion,
+    usage: {
+      promptTokens: u?.promptTokenCount,
+      completionTokens: u?.candidatesTokenCount,
+      totalTokens: u?.totalTokenCount,
+    },
+  };
 }
