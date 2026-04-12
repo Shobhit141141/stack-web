@@ -1,43 +1,13 @@
 {
-  "name": "backend",
-  "version": "1.0.0",
+  "name": "stack",
   "private": true,
-  "type": "module",
+  "description": "Monorepo: backend (API) + frontend (Vite SPA)",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy",
-    "test-pdfs:generate": "node scripts/generate-test-pdfs.mjs"
-  },
-  "dependencies": {
-    "@google/genai": "^1.48.0",
-    "@prisma/client": "^6.19.0",
-    "@supabase/supabase-js": "^2.49.1",
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.0",
-    "express": "^5.1.0",
-    "mammoth": "^1.12.0",
-    "morgan": "^1.10.0",
-    "multer": "^2.1.1",
-    "openai": "^6.33.0",
-    "pdf-parse": "^2.4.5",
-    "tiktoken": "^1.0.22",
-    "winston": "^3.17.0"
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.0",
-    "@types/morgan": "^1.9.9",
-    "@types/multer": "^2.1.0",
-    "@types/node": "^22.10.0",
-    "@types/pdf-parse": "^1.1.5",
-    "pdf-lib": "^1.17.1",
-    "prisma": "^6.19.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "typecheck:backend": "npm run typecheck --prefix backend"
   }
 }
