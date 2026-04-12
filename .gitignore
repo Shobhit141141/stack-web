@@ -1,9 +1,19 @@
-node_modules/
-dist/
+# Root + both apps
+**/node_modules/
+**/dist/
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.log
 .DS_Store
 temp*
 temp*/
+
+# Backend
+backend/.env
+backend/temp*
+
+# Frontend local env
+frontend/.env
+frontend/.env.local
