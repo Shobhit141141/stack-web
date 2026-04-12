@@ -6,13 +6,13 @@ export function RootLayout() {
   const { session, signOut, ready } = useAuth()
 
   return (
-    <Box className="min-h-svh bg-white">
+    <Box className="flex min-h-svh flex-col bg-white">
       <Flex
         align="center"
         justify="between"
         px="6"
         py="4"
-        className="border-b border-gray-12"
+        className="shrink-0 border-b border-gray-6"
       >
         <Text size="2" weight="medium" className="tracking-tight">
           Stack
@@ -25,13 +25,13 @@ export function RootLayout() {
             color="gray"
             highContrast
             onClick={() => void signOut()}
-            className="cursor-pointer uppercase tracking-widest"
+            className="cursor-pointer"
           >
             Sign out
           </Button>
         ) : null}
       </Flex>
-      <Box className="mx-auto max-w-md px-6 py-16">
+      <Box className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-12">
         <Outlet />
       </Box>
     </Box>

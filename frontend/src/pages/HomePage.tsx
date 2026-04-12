@@ -1,5 +1,28 @@
-import { Box, Button, Flex, Text } from '@radix-ui/themes'
+import { Avatar, Box, Button, Flex, Text } from '@radix-ui/themes'
+import type { MeProfile } from '../auth/AuthContext'
 import { useAuth } from '../auth/AuthContext'
+
+function profileHeadline(p: MeProfile): string {
+  const name = p.displayName?.trim()
+  if (name) return name
+  if (p.userName) return p.userName
+  return p.email
+}
+
+function profileSubline(p: MeProfile, headline: string): string | null {
+  if (p.email && p.email !== headline) return p.email
+  if (p.userName && p.userName !== headline) return `@${p.userName}`
+  return null
+}
+
+function profileInitials(p: MeProfile): string {
+  const from = p.displayName?.trim() || p.email || p.userName || '?'
+  const parts = from.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return `${parts[0]!.slice(0, 1)}${parts[1]!.slice(0, 1)}`.toUpperCase()
+  }
+  return from.slice(0, 2).toUpperCase()
+}
 
 export function HomePage() {
   const {
@@ -54,23 +77,44 @@ export function HomePage() {
     )
   }
 
+  if (!profile) {
+    return (
+      <Text size="2" color="gray">
+        Loading profile…
+      </Text>
+    )
+  }
+
+  const headline = profileHeadline(profile)
+  const subline = profileSubline(profile, headline)
+
   return (
-    <Flex direction="column" gap="8" align="stretch">
-      <Box className="space-y-1 border-b border-gray-6 pb-8">
-        <Text size="1" color="gray" className="uppercase tracking-widest">
-          Signed in
+    <Flex
+      direction="column"
+      align="center"
+      gap="5"
+      pt="2"
+      className="text-center"
+    >
+      <Avatar
+        size="4"
+        radius="full"
+        fallback={profileInitials(profile)}
+        src={profile.avatarUrl ?? undefined}
+        color="gray"
+      />
+      <Box>
+        <Text as="p" size="6" weight="medium" highContrast mb="1">
+          {headline}
         </Text>
-        <Text size="5" weight="medium" highContrast>
-          {profile?.displayName ?? profile?.userName ?? profile?.email ?? '—'}
-        </Text>
-        {profile?.email ? (
-          <Text size="2" color="gray">
-            {profile.email}
+        {subline ? (
+          <Text as="p" size="2" color="gray">
+            {subline}
           </Text>
         ) : null}
       </Box>
       {error ? (
-        <Text size="2" color="gray">
+        <Text as="p" size="2" color="gray">
           {error}
         </Text>
       ) : null}
