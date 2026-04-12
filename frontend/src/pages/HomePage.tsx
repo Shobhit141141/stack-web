@@ -1,68 +1,79 @@
-import { Box, Button, Code, Flex, Heading, Text } from '@radix-ui/themes'
-import { useCallback, useState } from 'react'
-import { MdOutlineCloudDownload } from 'react-icons/md'
-import { apiFetchOk } from '../lib/api'
-import { useAppStore } from '../store/useAppStore'
+import { Box, Button, Flex, Text } from '@radix-ui/themes'
+import { useAuth } from '../auth/AuthContext'
 
 export function HomePage() {
-  const { count, inc, lastFetchStatus, setLastFetchStatus } = useAppStore()
-  const [loading, setLoading] = useState(false)
+  const {
+    ready,
+    configError,
+    session,
+    profile,
+    signInWithGoogle,
+    error,
+  } = useAuth()
 
-  const tryFetch = useCallback(async () => {
-    setLoading(true)
-    setLastFetchStatus(null)
-    try {
-      const res = await apiFetchOk(
-        'https://jsonplaceholder.typicode.com/posts/1',
-      )
-      const data = (await res.json()) as { title?: string }
-      setLastFetchStatus(`OK — ${data.title?.slice(0, 60) ?? 'no title'}…`)
-    } catch (e) {
-      setLastFetchStatus(
-        e instanceof Error ? e.message : 'Request failed',
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [setLastFetchStatus])
+  if (!ready) {
+    return (
+      <Text size="2" color="gray">
+        Loading…
+      </Text>
+    )
+  }
+
+  if (configError) {
+    return (
+      <Text size="2" color="gray" className="leading-relaxed">
+        {configError}
+      </Text>
+    )
+  }
+
+  if (!session) {
+    return (
+      <Flex direction="column" gap="6" align="stretch">
+        <Text size="2" color="gray" className="leading-relaxed">
+          Sign in with Google. Use the same Supabase project as your API; add
+          this origin to Supabase Authentication redirect URLs.
+        </Text>
+        <Button
+          type="button"
+          size="3"
+          variant="solid"
+          color="gray"
+          highContrast
+          className="w-full cursor-pointer"
+          onClick={() => void signInWithGoogle()}
+        >
+          Continue with Google
+        </Button>
+        {error ? (
+          <Text size="2" color="gray">
+            {error}
+          </Text>
+        ) : null}
+      </Flex>
+    )
+  }
 
   return (
-    <Box>
-      <Heading size="7" mb="2">
-        Home
-      </Heading>
-      <Text color="gray" mb="6" as="p">
-        Vite + React + TypeScript + Tailwind + Radix Themes + React Router +
-        Zustand + <Code>apiFetch</Code>.
-      </Text>
-
-      <Flex direction="column" gap="4" align="start">
-        <Box>
-          <Text weight="bold" mb="2" as="p">
-            Zustand
+    <Flex direction="column" gap="8" align="stretch">
+      <Box className="space-y-1 border-b border-gray-6 pb-8">
+        <Text size="1" color="gray" className="uppercase tracking-widest">
+          Signed in
+        </Text>
+        <Text size="5" weight="medium" highContrast>
+          {profile?.displayName ?? profile?.userName ?? profile?.email ?? '—'}
+        </Text>
+        {profile?.email ? (
+          <Text size="2" color="gray">
+            {profile.email}
           </Text>
-          <Flex gap="3" align="center">
-            <Button onClick={inc} variant='classic'>Count: {count}</Button>
-          </Flex>
-        </Box>
-
-        <Box>
-          <Text weight="bold" mb="2" as="p">
-            Fetch helper
-          </Text>
-          <Button onClick={() => void tryFetch()} disabled={loading}>
-            <Flex align="center" gap="2">
-              <MdOutlineCloudDownload size={18} aria-hidden />
-              {loading ? 'Loading…' : 'GET sample JSON (public API)'}
-            </Flex>
-          </Button>
-          {lastFetchStatus ? (
-            <Text size="2" mt="2" color="gray" as="p">
-              {lastFetchStatus}
-            </Text>
-          ) : null}
-        </Box>
-      </Flex>
-    </Box>
+        ) : null}
+      </Box>
+      {error ? (
+        <Text size="2" color="gray">
+          {error}
+        </Text>
+      ) : null}
+    </Flex>
   )
 }
