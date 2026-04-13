@@ -8,6 +8,12 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum ActivityType {
+  upload
+  chat
+  search
+}
+
 model User {
   id          String   @id @db.Uuid
   email       String   @unique
@@ -17,7 +23,8 @@ model User {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  files File[]
+  files      File[]
+  activities Activity[]
 
   @@index([userName])
   @@map("users")
@@ -57,6 +64,22 @@ model File {
   @@index([createdAt])
   @@index([userId, createdAt])
   @@map("files")
+}
+
+model Activity {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  type      ActivityType
+  metadata  Json
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([type])
+  @@map("activities")
 }
 
 model FileChunk {

@@ -3,6 +3,7 @@ import {
   hasEmbeddingApiKey,
   hasRagCompletionConfigured,
 } from "../config/env.js";
+import * as activityService from "../services/activity.service.js";
 import * as askService from "../services/ask.service.js";
 
 export async function postAsk(req: Request, res: Response, next: NextFunction) {
@@ -49,6 +50,12 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
       });
       return;
     }
+
+    activityService.logActivity({
+      userId,
+      type: "chat",
+      metadata: { query },
+    });
 
     const result = await askService.askUserFiles({ userId, query, fileIds });
     res.json(result);

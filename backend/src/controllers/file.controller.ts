@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env.js";
 import { enqueueUrlIngest } from "../queue/url-ingest.queue.js";
 import { scheduleExtractionAfterUpload } from "../services/extraction.service.js";
+import * as activityService from "../services/activity.service.js";
 import * as fileService from "../services/file.service.js";
 import { log } from "../utils/logger/index.js";
 import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
@@ -183,6 +184,12 @@ export async function uploadFile(
         name: row.originalName,
         storagePath: row.storagePath,
         createdAt: row.createdAt.toISOString(),
+      });
+
+      activityService.logActivity({
+        userId,
+        type: "upload",
+        metadata: { fileId: row.id, fileName: row.originalName },
       });
 
       log.info(

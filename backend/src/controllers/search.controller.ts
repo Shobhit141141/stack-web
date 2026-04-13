@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
-import { parseSearchQuery } from "../utils/file-query-parser.js";
+import * as activityService from "../services/activity.service.js";
 import * as searchService from "../services/search.service.js";
+import { parseSearchQuery } from "../utils/file-query-parser.js";
 
 export async function getSemanticSearch(
   req: Request,
@@ -33,6 +34,11 @@ export async function getSemanticSearch(
     //   ]
     const parsed = parseSearchQuery(req.query as Record<string, unknown>);
     const result = await searchService.semanticSearchUserFiles(userId, parsed.q!);
+    activityService.logActivity({
+      userId,
+      type: "search",
+      metadata: { query: parsed.q },
+    });
     res.json(result);
   } catch (e) {
     next(e);
