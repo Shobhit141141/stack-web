@@ -1,8 +1,17 @@
+@import '@fontsource-variable/mona-sans';
 @import 'tailwindcss';
 @import '@radix-ui/themes/styles.css' layer(components);
 
+@theme {
+  --font-sans: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
+}
+
+.radix-themes {
+  --default-font-family: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
+}
+
 @layer base {
   body {
-    @apply antialiased;
+    @apply antialiased font-sans;
   }
 }

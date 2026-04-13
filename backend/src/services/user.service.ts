@@ -53,7 +53,27 @@ export async function getOrCreateUserFromSupabase(
   }
 
   const existing = await userRepository.findUserById(supabaseUser.id);
-  if (existing) return existing;
+  if (existing) {
+    const { displayName, avatarUrl } = profileFromMetadata(supabaseUser);
+    const nextDisplayName =
+      displayName !== null && displayName !== existing.displayName
+        ? displayName
+        : existing.displayName;
+    const nextAvatarUrl =
+      avatarUrl !== null && avatarUrl !== existing.avatarUrl
+        ? avatarUrl
+        : existing.avatarUrl;
+    if (
+      nextDisplayName !== existing.displayName ||
+      nextAvatarUrl !== existing.avatarUrl
+    ) {
+      return userRepository.updateUserProfileFields(existing.id, {
+        displayName: nextDisplayName,
+        avatarUrl: nextAvatarUrl,
+      });
+    }
+    return existing;
+  }
 
   const base = slugFromEmail(email);
   const userName = await allocateUniqueUserName(base);

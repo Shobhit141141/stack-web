@@ -22,3 +22,10 @@ export async function createUser(data: {
 }): Promise<User> {
   return prisma.user.create({ data });
 }
+
+export async function updateUserProfileFields(
+  id: string,
+  data: { displayName: string | null; avatarUrl: string | null }
+): Promise<User> {
+  return prisma.user.update({ where: { id }, data });
+}
