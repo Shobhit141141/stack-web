@@ -1,5 +1,6 @@
 import { Box, Button, Flex, Text } from '@radix-ui/themes'
 import { useNavigate } from 'react-router-dom'
+import { routeMap } from '../lib/routes'
 
 // friendly 404 for unknown paths; input: none; output: minimal not-found screen
 export function NotFoundPage() {
@@ -21,7 +22,7 @@ export function NotFoundPage() {
           color="gray"
           highContrast
           className="cursor-pointer"
-          onClick={() => navigate('/', { replace: true })}
+          onClick={() => navigate(routeMap.home, { replace: true })}
         >
           Go home
         </Button>

@@ -1,5 +1,6 @@
 import { Box, Button, Flex, Text } from '@radix-ui/themes'
 import { isRouteErrorResponse, useNavigate, useRouteError } from 'react-router-dom'
+import { routeMap } from '../lib/routes'
 
 // shows route/load errors with a clear message; input: none (reads useRouteError); output: fallback ui
 export function RouteErrorFallback() {
@@ -36,7 +37,7 @@ export function RouteErrorFallback() {
           color="gray"
           highContrast
           className="cursor-pointer"
-          onClick={() => navigate('/', { replace: true })}
+          onClick={() => navigate(routeMap.home, { replace: true })}
         >
           Go home
         </Button>

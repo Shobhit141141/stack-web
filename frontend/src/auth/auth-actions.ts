@@ -1,13 +1,12 @@
+import { routeMap } from '../lib/routes'
 import { useAuthStore } from '../store/auth-store'
 import { getSupabase } from '../lib/supabase'
-
-const LOGIN_PATH = '/login'
 
 export async function signInWithGoogle(): Promise<void> {
   const supabase = getSupabase()
   if (!supabase) return
   useAuthStore.getState().setError(null)
-  const redirectTo = `${window.location.origin}${LOGIN_PATH}`
+  const redirectTo = `${window.location.origin}${routeMap.login}`
   const { error: oauthErr } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo },

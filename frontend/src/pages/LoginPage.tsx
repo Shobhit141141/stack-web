@@ -2,6 +2,7 @@ import { Box, Button, Flex, Text } from '@radix-ui/themes'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import { routeMap } from '../lib/routes'
 import { FullScreenLoader } from '../components/ui/full-screen-loader'
 
 export function LoginPage() {
@@ -10,7 +11,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (ready && !configError && session) {
-      navigate('/', { replace: true })
+      navigate(routeMap.home, { replace: true })
     }
   }, [ready, configError, session, navigate])
 
