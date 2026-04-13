@@ -14,7 +14,7 @@ export function startUrlIngestWorker(): Worker<UrlIngestJobPayload> {
   const worker = new Worker<UrlIngestJobPayload>(
     URL_INGEST_QUEUE_NAME,
     async (job) => {
-      await processUrlIngestJob(job.data, {
+      return processUrlIngestJob(job.data, {
         jobId: job.id !== undefined ? String(job.id) : "unknown",
       });
     },

@@ -6,6 +6,11 @@ import { uploadFileMemory } from "../middleware/multer.middleware.js";
 const router = Router();
 
 router.post("/from-url", requireAuth, fileController.createFileFromUrl);
+router.get(
+  "/url-jobs/:jobId",
+  requireAuth,
+  fileController.getUrlIngestJobStatus
+);
 router.post("/", requireAuth, uploadFileMemory, fileController.uploadFile);
 router.get("/search", requireAuth, fileController.searchFiles);
 router.get("/", requireAuth, fileController.listFiles);

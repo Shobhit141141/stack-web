@@ -203,13 +203,15 @@ function logStorageFailure(
   log.error(`${header}\n${String(e)}`);
 }
 
+export type UrlIngestJobSuccess = { fileId: string; fileName: string };
+
 // Purpose: BullMQ job handler — fetch URL safely, normalize to allowed types, dedupe by content hash, upload + DB row, then schedule extract/index when content is new.
 // Ex input: payload { userId: 'uuid', accessToken: 'jwt', sourceUrl: 'https://example.com/doc.pdf' }, meta { jobId: '42' }
-// Ex output: Promise<void> resolves when done; throws UnrecoverableError for client errors; throws Error for retryable failures (e.g. 502, storage after upload attempt).
+// Ex output: resolves with file ids for BullMQ returnvalue; throws UnrecoverableError for client errors; throws Error for retryable failures (e.g. 502, storage after upload attempt).
 export async function processUrlIngestJob(
   payload: { userId: string; accessToken: string; sourceUrl: string },
   meta: { jobId: string }
-): Promise<void> {
+): Promise<UrlIngestJobSuccess> {
   const { userId, accessToken, sourceUrl } = payload;
   const jobId = meta.jobId;
 
@@ -416,7 +418,7 @@ export async function processUrlIngestJob(
     );
 
     if (!shouldIndexContent) {
-      return;
+      return { fileId: file.id, fileName: file.originalName };
     }
 
     if (uploadMime === PDF_MIME || uploadMime === DOCX_MIME) {
@@ -432,6 +434,8 @@ export async function processUrlIngestJob(
         uploadBody.toString("utf8")
       );
     }
+
+    return { fileId: file.id, fileName: file.originalName };
   } catch (e) {
     if (e instanceof HttpError) {
       failClient(e.message);

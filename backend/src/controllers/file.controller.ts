@@ -4,6 +4,7 @@ import { enqueueUrlIngest } from "../queue/url-ingest.queue.js";
 import { scheduleExtractionAfterUpload } from "../services/extraction.service.js";
 import * as activityService from "../services/activity.service.js";
 import * as fileService from "../services/file.service.js";
+import * as urlIngestJobStatusService from "../services/url-ingest-job-status.service.js";
 import { log } from "../utils/logger/index.js";
 import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import {
@@ -84,6 +85,33 @@ export async function getFileById(
 }
 
 const MAX_URL_LENGTH = 2048;
+
+export async function getUrlIngestJobStatus(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const raw = req.params.jobId;
+  const jobId = Array.isArray(raw) ? raw[0] : raw;
+  if (!jobId || !String(jobId).trim()) {
+    res.status(400).json({ error: "Missing job id" });
+    return;
+  }
+  try {
+    const result = await urlIngestJobStatusService.getUrlIngestJobStatus(
+      userId,
+      String(jobId).trim()
+    );
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+}
 
 export async function createFileFromUrl(
   req: Request,

@@ -1,6 +1,7 @@
-import { Queue } from "bullmq";
+import { type Job, Queue } from "bullmq";
 
 import { env } from "../config/env.js";
+import type { UrlIngestJobSuccess } from "../services/url-ingest.service.js";
 import { createRedisConnection } from "./redis-connection.js";
 
 export const URL_INGEST_QUEUE_NAME = "url-ingest";
@@ -11,14 +12,16 @@ export type UrlIngestJobPayload = {
   sourceUrl: string;
 };
 
-let queue: Queue<UrlIngestJobPayload> | null = null;
+let queue: Queue<UrlIngestJobPayload, UrlIngestJobSuccess> | null = null;
 
-function getUrlIngestQueue(): Queue<UrlIngestJobPayload> {
+function getUrlIngestQueue(): Queue<UrlIngestJobPayload, UrlIngestJobSuccess> {
   if (!env.REDIS_URL) {
     throw new Error("REDIS_URL is not set");
   }
   if (!queue) {
-    queue = new Queue<UrlIngestJobPayload>(URL_INGEST_QUEUE_NAME, {
+    queue = new Queue<UrlIngestJobPayload, UrlIngestJobSuccess>(
+      URL_INGEST_QUEUE_NAME,
+      {
       connection: createRedisConnection(),
       defaultJobOptions: {
         attempts: 3,
@@ -26,9 +29,17 @@ function getUrlIngestQueue(): Queue<UrlIngestJobPayload> {
         removeOnComplete: 500,
         removeOnFail: 2000,
       },
-    });
+    }
+    );
   }
   return queue;
+}
+
+export async function getUrlIngestJobById(
+  jobId: string
+): Promise<Job<UrlIngestJobPayload, UrlIngestJobSuccess> | undefined> {
+  const q = getUrlIngestQueue();
+  return q.getJob(jobId);
 }
 
 export async function enqueueUrlIngest(
