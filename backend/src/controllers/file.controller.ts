@@ -55,6 +55,24 @@ export async function searchFiles(
   }
 }
 
+export async function listRecentFiles(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const result = await fileService.listRecentUserFiles(userId);
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function getFileById(
   req: Request,
   res: Response,

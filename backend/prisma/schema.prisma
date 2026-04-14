@@ -54,6 +54,7 @@ model File {
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  lastOpenedAt DateTime? @map("last_opened_at")
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   contentRef Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
@@ -63,6 +64,7 @@ model File {
   @@index([originalName])
   @@index([createdAt])
   @@index([userId, createdAt])
+  @@index([userId, lastOpenedAt(sort: Desc)])
   @@map("files")
 }
 

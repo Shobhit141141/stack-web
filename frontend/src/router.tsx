@@ -7,6 +7,7 @@ import { RootLayout } from './layouts/RootLayout'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { RecentsPage } from './pages/RecentsPage'
 import { SectionPlaceholderPage } from './pages/SectionPlaceholderPage'
 
 const authed = (node: ReactNode) => <RequireAuth>{node}</RequireAuth>
@@ -28,7 +29,7 @@ export const router = createBrowserRouter([
           },
           {
             path: appRouteSegment.recents,
-            element: authed(<SectionPlaceholderPage title="Recents" />),
+            element: authed(<RecentsPage />),
           },
           {
             path: appRouteSegment.timeline,

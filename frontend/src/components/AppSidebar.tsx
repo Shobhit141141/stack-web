@@ -1,11 +1,10 @@
-import { Box, Flex, Text } from '@radix-ui/themes'
+import { Text } from '@radix-ui/themes'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import {
   HiOutlineArrowUpTray,
   HiOutlineChatBubbleLeftRight,
   HiOutlineChevronLeft,
-  HiOutlineChevronRight,
   HiOutlineClock,
   HiOutlineFolder,
   HiOutlineQueueList,
@@ -44,7 +43,96 @@ function readCollapsed(): boolean {
   }
 }
 
+function CircularProgress({
+  percent,
+  size = 36,
+  dotted = false,
+  dots = 20,
+}: {
+  percent: number
+  size?: number
+  dotted?: boolean
+  dots?: number
+}) {
+  const clamped = Math.min(100, Math.max(0, percent))
+  const cx = size / 2
+  const cy = size / 2
+
+  if (dotted) {
+    const dotRadius = 1.5
+    const ringRadius = (size - dotRadius * 2) / 2
+    const filledCount = Math.round((dots * clamped) / 100)
+
+    return (
+      <svg width={size} height={size} className="block" aria-hidden>
+        {Array.from({ length: dots }, (_, i) => {
+          const angle = (2 * Math.PI * i) / dots - Math.PI / 2
+          return (
+            <circle
+              key={i}
+              cx={cx + ringRadius * Math.cos(angle)}
+              cy={cy + ringRadius * Math.sin(angle)}
+              r={dotRadius}
+              fill={i < filledCount ? '#171717' : '#d4d4d4'}
+            />
+          )
+        })}
+        <text
+          x={cx}
+          y={cy}
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="fill-neutral-900 text-[9px] font-semibold"
+        >
+          {Math.round(clamped)}%
+        </text>
+      </svg>
+    )
+  }
+
+  const strokeWidth = 3
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const filled = (clamped / 100) * circumference
+
+  return (
+    <svg width={size} height={size} className="block" aria-hidden>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={radius}
+        fill="none"
+        stroke="#e5e5e5"
+        strokeWidth={strokeWidth}
+      />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={radius}
+        fill="none"
+        stroke="#171717"
+        strokeWidth={strokeWidth}
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference - filled}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${cx} ${cy})`}
+      />
+      <text
+        x={cx}
+        y={cy}
+        textAnchor="middle"
+        dominantBaseline="central"
+        className="fill-neutral-900 text-[9px] font-semibold"
+      >
+        {Math.round(clamped)}%
+      </text>
+    </svg>
+  )
+}
+
 // left rail: logo, upload, nav, storage + ask; width + labels animated with motion
+// IMPORTANT: every element stays at the same vertical position during collapse/expand.
+// Only width changes and labels fade — no DOM swaps that cause vertical displacement.
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
@@ -65,103 +153,72 @@ export function AppSidebar() {
       transition={sidebarTransition}
       className="flex h-svh shrink-0 flex-col overflow-hidden border-r border-neutral-300 bg-neutral-50"
       aria-expanded={!collapsed}
+      {...(collapsed ? { onClick: () => setCollapsed(false), role: 'button' } : {})}
+      style={collapsed ? { cursor: 'pointer' } : undefined}
     >
-      <Box px="3" pt="4" pb="3" className="shrink-0">
-        <Flex
-          align="center"
-          justify={collapsed ? 'center' : 'between'}
-          gap="2"
-          wrap="nowrap"
-          className={collapsed ? 'min-w-0 flex-col' : 'min-w-0'}
+      {/* ── Header: mark always visible, wordmark + chevron fade ── */}
+      <div className="flex shrink-0 items-center gap-2 px-3 pt-4 pb-3 ml-1">
+        <motion.div
+          initial={false}
+          animate={{ marginLeft: collapsed ? 'auto' : 0, marginRight: collapsed ? 'auto' : 0 }}
+          transition={sidebarTransition}
+          className="shrink-0"
         >
-          <AnimatePresence mode="popLayout" initial={false}>
-            {collapsed ? (
-              <motion.div
-                key="mark"
-                layout
-                initial={{ opacity: 0, scale: 0.92 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.92 }}
-                transition={{ ...labelTransition }}
-                className="flex shrink-0"
-              >
-                <Box
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-900 text-sm font-bold lowercase text-neutral-900"
-                  aria-hidden
-                >
-                  s
-                </Box>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="wordmark"
-                layout
-                initial={{ opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
-                transition={{ ...labelTransition }}
-                className="min-w-0 flex-1 overflow-hidden"
-              >
-                <Text size="4" weight="bold" className="lowercase tracking-tight text-neutral-900">
-                  stack
-                </Text>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <motion.button
+          <img src="/icons/cloud.svg" alt="Stack" className="h-9 w-9 " />
+        </motion.div>
+        <motion.div
+          initial={false}
+          animate={{ width: collapsed ? 0 : 'auto', opacity: collapsed ? 0 : 1 }}
+          transition={sidebarTransition}
+          className="min-w-0 flex-1 overflow-hidden"
+        >
+          <Text size="4" weight="bold" className="whitespace-nowrap lowercase tracking-tight text-neutral-900">
+            stack
+          </Text>
+        </motion.div>
+        <motion.div
+          initial={false}
+          animate={{ width: collapsed ? 0 : 32, opacity: collapsed ? 0 : 1 }}
+          transition={sidebarTransition}
+          className="overflow-hidden"
+        >
+          <button
             type="button"
-            layout
-            onClick={() => setCollapsed((c) => !c)}
-            whileTap={{ scale: 0.96 }}
+            onClick={() => setCollapsed(true)}
             className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100"
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label="Collapse sidebar"
           >
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.span
-                key={collapsed ? 'expand' : 'collapse'}
-                initial={{ opacity: 0, scale: 0.85 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.85 }}
-                transition={{ duration: 0.12 }}
-                className="flex items-center justify-center"
-              >
-                {collapsed ? (
-                  <HiOutlineChevronRight className="size-4" aria-hidden />
-                ) : (
-                  <HiOutlineChevronLeft className="size-4" aria-hidden />
-                )}
-              </motion.span>
-            </AnimatePresence>
-          </motion.button>
-        </Flex>
-      </Box>
+            <HiOutlineChevronLeft className="size-4" aria-hidden />
+          </button>
+        </motion.div>
+      </div>
 
-      <Box px="3" className="shrink-0">
+      {/* ── Upload button ── */}
+      <div className="shrink-0 px-3">
         <button
           type="button"
-          className={`flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 ${
-            collapsed ? 'px-2' : 'px-3'
-          }`}
+          className="flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-3 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
           title="Upload"
         >
           <HiOutlineArrowUpTray className="size-5 shrink-0" aria-hidden />
           <AnimatePresence initial={false}>
-            {!collapsed ? (
+            {!collapsed && (
               <motion.span
                 key="upload-label"
-                initial={{ opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6 }}
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 'auto' }}
+                exit={{ opacity: 0, width: 0 }}
                 transition={labelTransition}
-                className="whitespace-nowrap"
+                className="overflow-hidden whitespace-nowrap"
               >
                 Upload
               </motion.span>
-            ) : null}
+            )}
           </AnimatePresence>
         </button>
-      </Box>
+      </div>
 
+      {/* ── Nav items ── */}
       <nav className="mt-5 flex min-w-0 flex-col gap-2 px-3" aria-label="Main">
         {navItems.map(({ to, label, Icon }) => (
           <NavLink
@@ -177,81 +234,92 @@ export function AppSidebar() {
                   : 'border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100',
               ].join(' ')
             }
+            onClick={collapsed ? (e) => e.stopPropagation() : undefined}
           >
             <Icon className="size-5 shrink-0" aria-hidden />
             <AnimatePresence initial={false}>
-              {!collapsed ? (
+              {!collapsed && (
                 <motion.span
                   key={label}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -8 }}
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
                   transition={labelTransition}
                   className="min-w-0 overflow-hidden whitespace-nowrap"
                 >
                   {label}
                 </motion.span>
-              ) : null}
+              )}
             </AnimatePresence>
           </NavLink>
         ))}
       </nav>
 
-      <Box px="3" pb="4" pt="6" className="mt-auto min-w-0 shrink-0">
-        <Flex
-          direction="column"
-          gap="3"
-          className="rounded-xl border border-neutral-200 bg-neutral-100 p-3"
+      {/* ── Footer: storage + ask — same DOM, content crossfades ── */}
+      <div className="mt-auto shrink-0 px-3 pb-4 pt-6">
+        <div
+          className={[
+            "flex flex-col items-center gap-3 rounded-xl",
+            collapsed ? "" : "border border-neutral-200 bg-neutral-100 p-3"
+          ].join(" ")}
         >
-          <Box title="About 25% storage left">
-            <Flex direction="column" gap="2">
+   
+          {/* Storage indicator — fixed h-[44px] so neither variant shifts the layout */}
+          <div className="relative flex h-[44px] w-full items-center justify-center" title="About 25% storage left">
+            {/* Circular (collapsed) */}
+            <motion.div
+              initial={false}
+              animate={{ opacity: collapsed ? 1 : 0 }}
+              transition={labelTransition}
+              className="absolute inset-0 flex items-center justify-center"
+              style={{ pointerEvents: collapsed ? 'auto' : 'none' }}
+            >
+              <CircularProgress percent={75} />
+            </motion.div>
+            {/* Segmented (expanded) */}
+            <motion.div
+              initial={false}
+              animate={{ opacity: collapsed ? 0 : 1 }}
+              transition={labelTransition}
+              className="absolute inset-0 flex w-full flex-col justify-center gap-1"
+              style={{ pointerEvents: collapsed ? 'none' : 'auto' }}
+            >
               <SegmentedProgressBar
                 filledPercent={75}
-                segmentCount={collapsed ? 10 : 24}
+                segmentCount={24}
                 aria-label="Storage used, about 75 percent"
               />
-              <AnimatePresence initial={false}>
-                {!collapsed ? (
-                  <motion.div
-                    key="pct"
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={labelTransition}
-                  >
-                    <Text size="1" weight="medium" className="text-center text-neutral-700">
-                      25% left
-                    </Text>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </Flex>
-          </Box>
+              <Text size="1" weight="medium" className="text-center text-neutral-700">
+                25% left
+              </Text>
+            </motion.div>
+          </div>
+
+          {/* Ask button */}
           <button
             type="button"
-            className={`flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-50 ${
-              collapsed ? 'px-2' : 'px-3'
-            }`}
+            onClick={collapsed ? (e) => e.stopPropagation() : undefined}
+            className="flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-50"
             title="Ask file?"
           >
             <HiOutlineChatBubbleLeftRight className="size-5 shrink-0" aria-hidden />
             <AnimatePresence initial={false}>
-              {!collapsed ? (
+              {!collapsed && (
                 <motion.span
                   key="ask-label"
-                  initial={{ opacity: 0, x: -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -6 }}
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
                   transition={labelTransition}
-                  className="whitespace-nowrap"
+                  className="overflow-hidden whitespace-nowrap"
                 >
                   Ask file?
                 </motion.span>
-              ) : null}
+              )}
             </AnimatePresence>
           </button>
-        </Flex>
-      </Box>
+        </div>
+      </div>
     </motion.aside>
   )
 }

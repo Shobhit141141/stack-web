@@ -12,6 +12,8 @@ import { log } from "../utils/logger/index.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as storageService from "./storage.service.js";
 
+const RECENTS_LIMIT = 15;
+
 function logStorageUploadFailure(
   e: unknown,
   ctx: {
@@ -183,6 +185,8 @@ export async function getUserFileWithSignedUrl(params: {
     throw new HttpError(502, "Could not generate download link");
   }
 
+  await fileRepository.touchFileLastOpened(params.fileId, params.userId);
+
   return {
     id: row.id,
     name: row.originalName,
@@ -190,5 +194,29 @@ export async function getUserFileWithSignedUrl(params: {
     size: sizeToSafeNumber(row.size),
     createdAt: row.createdAt.toISOString(),
     signedUrl,
+  };
+}
+
+export async function listRecentUserFiles(userId: string): Promise<{
+  files: Array<{
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    createdAt: string;
+  }>;
+}> {
+  const rows = await fileRepository.findRecentFilesForUser(
+    userId,
+    RECENTS_LIMIT
+  );
+  return {
+    files: rows.map((row) => ({
+      id: row.id,
+      name: row.originalName,
+      type: publicFileTypeLabel(row.originalName, row.mimeType),
+      size: sizeToSafeNumber(row.size),
+      createdAt: row.createdAt.toISOString(),
+    })),
   };
 }

@@ -13,6 +13,7 @@ router.get(
 );
 router.post("/", requireAuth, uploadFileMemory, fileController.uploadFile);
 router.get("/search", requireAuth, fileController.searchFiles);
+router.get("/recents", requireAuth, fileController.listRecentFiles);
 router.get("/", requireAuth, fileController.listFiles);
 router.get("/:id", requireAuth, fileController.getFileById);
 

@@ -84,6 +84,27 @@ export async function findFileByIdForUser(id: string, userId: string) {
   });
 }
 
+// sets last_opened_at for a file owned by user. no-op if id/user mismatch.
+export async function touchFileLastOpened(fileId: string, userId: string) {
+  await prisma.file.updateMany({
+    where: { id: fileId, userId },
+    data: { lastOpenedAt: new Date() },
+  });
+}
+
+// recent files for sidebar etc.: opened at least once, newest first.
+export async function findRecentFilesForUser(
+  userId: string,
+  take: number
+): Promise<FileListRow[]> {
+  return prisma.file.findMany({
+    where: { userId, lastOpenedAt: { not: null } },
+    orderBy: { lastOpenedAt: "desc" },
+    take,
+    select: listSelect,
+  });
+}
+
 const searchMetaSelect = {
   id: true,
   contentId: true,
