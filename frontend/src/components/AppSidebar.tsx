@@ -12,6 +12,7 @@ import {
 } from 'react-icons/hi2'
 import { NavLink } from 'react-router-dom'
 import { routeMap } from '../lib/routes'
+import { useUploadStore } from '../store/upload-store'
 import { SegmentedProgressBar } from './ui/segmented-progress-bar'
 
 const SIDEBAR_COLLAPSED_KEY = 'stack-sidebar-collapsed'
@@ -135,6 +136,7 @@ function CircularProgress({
 // Only width changes and labels fade — no DOM swaps that cause vertical displacement.
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(readCollapsed)
+  const openUpload = useUploadStore((s) => s.open)
 
   useEffect(() => {
     try {
@@ -197,6 +199,7 @@ export function AppSidebar() {
       <div className="shrink-0 px-3">
         <button
           type="button"
+          onClick={(e) => { e.stopPropagation(); openUpload() }}
           className="flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-3 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
           title="Upload"
         >

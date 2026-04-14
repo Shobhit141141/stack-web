@@ -1,0 +1,194 @@
+/* ── Uppy Dashboard overrides to match Stack design system ── */
+/* Font: Mona Sans, Colors: neutral palette, Shapes: rounded-xl */
+
+/* Overlay backdrop */
+.uppy-Dashboard--modal .uppy-Dashboard-overlay {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+/* Modal container */
+.uppy-Dashboard--modal .uppy-Dashboard-inner {
+  font-family: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  border: 1px solid #e5e5e5; /* neutral-200 */
+  border-radius: 1rem; /* rounded-xl */
+  background: #fff;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+/* Top bar */
+.uppy-Dashboard-innerWrap {
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.uppy-DashboardTab-btn {
+  font-family: inherit;
+}
+
+/* Dropzone area */
+.uppy-Dashboard-dropFilesHereHint {
+  border-radius: 0.75rem;
+  border-color: #171717; /* neutral-900 */
+  color: #171717;
+  font-family: inherit;
+}
+
+.uppy-Dashboard-AddFiles {
+  border: none;
+  background: #fff;
+}
+
+/* Browse button */
+.uppy-Dashboard-browse {
+  color: #171717;
+  font-weight: 600;
+  font-family: inherit;
+}
+
+.uppy-Dashboard-browse:hover,
+.uppy-Dashboard-browse:focus {
+  color: #404040; /* neutral-700 */
+  border-bottom-color: #171717;
+}
+
+/* Note text */
+.uppy-Dashboard-note {
+  color: #737373; /* neutral-500 */
+  font-family: inherit;
+  font-size: 0.8125rem;
+}
+
+/* File list items */
+.uppy-Dashboard-Item {
+  border-bottom-color: #e5e5e5;
+}
+
+.uppy-Dashboard-Item-name {
+  font-family: inherit;
+  font-weight: 500;
+  color: #171717;
+}
+
+.uppy-Dashboard-Item-statusSize {
+  font-family: inherit;
+  color: #737373;
+}
+
+/* Action buttons */
+.uppy-Dashboard-Item-action--remove {
+  color: #a3a3a3; /* neutral-400 */
+}
+
+.uppy-Dashboard-Item-action--remove:hover {
+  color: #171717;
+}
+
+/* Upload button */
+.uppy-StatusBar-actionBtn--upload {
+  font-family: inherit;
+  font-weight: 600;
+  background-color: #171717 !important;
+  color: #fff !important;
+  border-radius: 0.5rem !important;
+  border: none !important;
+  padding: 0.5rem 1.25rem !important;
+}
+
+.uppy-StatusBar-actionBtn--upload:hover {
+  background-color: #262626 !important; /* neutral-800 */
+}
+
+/* Status bar */
+.uppy-StatusBar {
+  font-family: inherit;
+  background: #fafafa; /* neutral-50 */
+  border-top: 1px solid #e5e5e5;
+}
+
+.uppy-StatusBar.is-waiting .uppy-StatusBar-actions {
+  background: #fafafa;
+}
+
+.uppy-StatusBar-progress {
+  background-color: #171717 !important;
+}
+
+/* Done / retry buttons */
+.uppy-StatusBar-actionBtn--done {
+  font-family: inherit;
+  color: #171717 !important;
+  font-weight: 600;
+}
+
+.uppy-StatusBar-actionBtn--retry {
+  font-family: inherit;
+}
+
+/* Close button */
+.uppy-Dashboard--modal .uppy-Dashboard-close {
+  color: #fff;
+  opacity: 0.9;
+  font-family: inherit;
+}
+
+.uppy-Dashboard--modal .uppy-Dashboard-close:hover {
+  opacity: 1;
+}
+
+/* Add more files button */
+.uppy-DashboardContent-addMore {
+  color: #171717;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+.uppy-DashboardContent-addMore:hover {
+  color: #404040;
+}
+
+.uppy-DashboardContent-addMoreBtn {
+  color: #171717;
+  border-color: #d4d4d4; /* neutral-300 */
+}
+
+/* Title bar */
+.uppy-DashboardContent-title {
+  font-family: inherit;
+  font-weight: 600;
+  color: #171717;
+}
+
+.uppy-DashboardContent-bar {
+  background: #fff;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+/* Back button */
+.uppy-DashboardContent-back {
+  font-family: inherit;
+  color: #171717;
+  font-weight: 500;
+}
+
+.uppy-DashboardContent-back:hover {
+  color: #404040;
+}
+
+/* Drag state */
+.uppy-Dashboard-AddFiles-title {
+  font-family: inherit;
+  font-weight: 600;
+  color: #171717;
+  font-size: 1.1rem;
+}
+
+/* Info panel */
+.uppy-Informer {
+  font-family: inherit;
+}
+
+.uppy-Informer-animated {
+  border-radius: 0.5rem;
+}

@@ -3,6 +3,7 @@ import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { AppSidebar } from '../components/AppSidebar'
 import { PdfViewerModal } from '../components/PdfViewerModal'
+import { UploadModal } from '../components/UploadModal'
 import { FullScreenLoader } from '../components/ui/full-screen-loader'
 import { routeMap } from '../lib/routes'
 import type { MeProfile } from '../types/auth'
@@ -29,6 +30,7 @@ export function RootLayout() {
   return (
     <Box className="relative flex min-h-svh flex-col bg-white">
       <PdfViewerModal />
+      <UploadModal />
       {showFullLoader ? <FullScreenLoader /> : null}
       {showFullLoader ? null : showAppChrome ? (
         <Flex className="min-h-svh w-full">
