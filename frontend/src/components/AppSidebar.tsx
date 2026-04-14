@@ -153,11 +153,24 @@ export function AppSidebar() {
         width: collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED,
       }}
       transition={sidebarTransition}
-      className="flex h-svh shrink-0 flex-col overflow-hidden border-r border-neutral-300 bg-neutral-50"
+      className="relative flex h-svh shrink-0 flex-col overflow-hidden border-r border-neutral-300 bg-neutral-50"
       aria-expanded={!collapsed}
-      {...(collapsed ? { onClick: () => setCollapsed(false), role: 'button' } : {})}
-      style={collapsed ? { cursor: 'pointer' } : undefined}
     >
+      {collapsed ? (
+        <button
+          type="button"
+          aria-label="Expand sidebar"
+          className="absolute inset-0 z-0 cursor-pointer border-0 bg-transparent p-0"
+          onClick={() => setCollapsed(false)}
+        />
+      ) : null}
+
+      <div
+        className={[
+          'relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+          collapsed ? 'pointer-events-none' : '',
+        ].join(' ')}
+      >
       {/* ── Header: mark always visible, wordmark + chevron fade ── */}
       <div className="flex shrink-0 items-center gap-2 px-3 pt-4 pb-3 ml-1">
         <motion.div
@@ -187,7 +200,7 @@ export function AppSidebar() {
           <button
             type="button"
             onClick={() => setCollapsed(true)}
-            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100"
+            className="pointer-events-auto flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100"
             aria-label="Collapse sidebar"
           >
             <HiOutlineChevronLeft className="size-4" aria-hidden />
@@ -199,8 +212,8 @@ export function AppSidebar() {
       <div className="shrink-0 px-3">
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); openUpload() }}
-          className="flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-3 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+          onClick={() => openUpload()}
+          className="pointer-events-auto flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-3 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
           title="Upload"
         >
           <HiOutlineArrowUpTray className="size-5 shrink-0" aria-hidden />
@@ -212,7 +225,7 @@ export function AppSidebar() {
                 animate={{ opacity: 1, width: 'auto' }}
                 exit={{ opacity: 0, width: 0 }}
                 transition={labelTransition}
-                className="overflow-hidden whitespace-nowrap"
+                className="overflow-hidden whitespace-nowrap text-white"
               >
                 Upload
               </motion.span>
@@ -230,14 +243,13 @@ export function AppSidebar() {
             title={label}
             className={({ isActive }) =>
               [
-                'flex min-w-0 items-center gap-3 rounded-lg border py-2.5 text-sm font-medium transition-colors',
+                'pointer-events-auto flex min-w-0 items-center gap-3 rounded-lg border py-2.5 text-sm font-medium transition-colors',
                 collapsed ? 'justify-center px-2' : 'px-3',
                 isActive
                   ? 'border-neutral-900 bg-neutral-900 text-white'
                   : 'border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100',
               ].join(' ')
             }
-            onClick={collapsed ? (e) => e.stopPropagation() : undefined}
           >
             <Icon className="size-5 shrink-0" aria-hidden />
             <AnimatePresence initial={false}>
@@ -301,8 +313,7 @@ export function AppSidebar() {
           {/* Ask button */}
           <button
             type="button"
-            onClick={collapsed ? (e) => e.stopPropagation() : undefined}
-            className="flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-50"
+            className="pointer-events-auto flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-50"
             title="Ask file?"
           >
             <HiOutlineChatBubbleLeftRight className="size-5 shrink-0" aria-hidden />
@@ -322,6 +333,7 @@ export function AppSidebar() {
             </AnimatePresence>
           </button>
         </div>
+      </div>
       </div>
     </motion.aside>
   )

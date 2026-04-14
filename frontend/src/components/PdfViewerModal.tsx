@@ -11,15 +11,18 @@ export function PdfViewerModal() {
   const { fileId, fileName, close } = usePdfViewerStore()
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [viewerReady, setViewerReady] = useState(false)
 
   useEffect(() => {
     if (!fileId) {
       setUrl(null)
       setError(null)
+      setViewerReady(false)
       return
     }
     setUrl(null)
     setError(null)
+    setViewerReady(false)
     fetchFileSignedUrl(fileId)
       .then(setUrl)
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load file'))
@@ -69,24 +72,32 @@ export function PdfViewerModal() {
             </div>
 
             {/* Viewer */}
-            <div className="min-h-0 flex-1">
+            <div className="relative min-h-0 flex-1">
               {!url && !error && (
-                <div className="flex h-full items-center justify-center">
+                <div className="absolute inset-0 z-10 flex h-full items-center justify-center bg-white">
                   <Skeleton className="h-[80%] w-[60%] rounded-lg" />
                 </div>
               )}
 
               {error && (
-                <div className="flex h-full items-center justify-center">
+                <div className="absolute inset-0 z-10 flex h-full items-center justify-center bg-white">
                   <Text size="2" className="text-red-600">{error}</Text>
                 </div>
               )}
 
               {url && (
-                <PDFViewer
-                  config={{ src: url, theme: { preference: 'light' } }}
-                  style={{ width: '100%', height: '100%' }}
-                />
+                <>
+                  {!viewerReady && (
+                    <div className="absolute inset-0 z-10 flex h-full items-center justify-center bg-white">
+                      <Skeleton className="h-[80%] w-[60%] rounded-lg" />
+                    </div>
+                  )}
+                  <PDFViewer
+                    config={{ src: url, theme: { preference: 'light' } }}
+                    style={{ width: '100%', height: '100%' }}
+                    onReady={() => setViewerReady(true)}
+                  />
+                </>
               )}
             </div>
           </motion.div>

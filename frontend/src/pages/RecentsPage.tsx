@@ -10,6 +10,7 @@ import type { FileItem } from '../types/file'
 type ViewMode = 'grid' | 'list'
 
 const VIEW_MODE_KEY = 'stack-recents-view'
+const LIST_GRID_TEMPLATE = 'minmax(0,1fr) 5rem 5rem'
 
 function readViewMode(): ViewMode {
   try {
@@ -65,16 +66,18 @@ function FileCardGrid({ file, onOpen }: { file: FileItem; onOpen: (f: FileItem) 
     <button
       type="button"
       onClick={() => onOpen(file)}
-      className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 text-left transition-colors hover:bg-neutral-50"
+      className="group flex cursor-pointer flex-col gap-2 rounded-xl bg-white p-4 text-left transition-colors"
     >
-      <img src={fileIcon(file.type)} alt="" className="h-12 w-12" />
-      <div className="flex w-full flex-col items-center gap-1 overflow-hidden">
-        <Text size="2" weight="medium" className="w-full truncate text-center text-neutral-900">
+      <img src={fileIcon(file.type)} alt="" className="w-full aspect-square rounded-md object-cover" />
+      <div className="flex w-full flex-col gap-0.5 overflow-hidden">
+        <Text size="2" className="w-full truncate text-left text-neutral-900 transition-all duration-200 group-hover:font-semibold">
           {file.name}
         </Text>
-        <Text size="1" className="text-neutral-500">
-          {formatSize(file.size)} &middot; {formatDate(file.createdAt)}
-        </Text>
+        <div className="flex items-center gap-1 text-xs text-neutral-500 transition-all duration-200 group-hover:font-semibold">
+          <span>{formatSize(file.size)}</span>
+          <span>&middot;</span>
+          <span>{formatDate(file.createdAt)}</span>
+        </div>
       </div>
     </button>
   )
@@ -85,16 +88,19 @@ function FileRowList({ file, onOpen }: { file: FileItem; onOpen: (f: FileItem) =
     <button
       type="button"
       onClick={() => onOpen(file)}
-      className="flex cursor-pointer items-center gap-3 rounded-lg border border-neutral-200 bg-white px-4 py-3 text-left transition-colors hover:bg-neutral-50"
+      className="group grid w-full cursor-pointer items-center rounded-lg bg-white px-0 py-3 text-left transition-colors"
+      style={{ gridTemplateColumns: LIST_GRID_TEMPLATE, gap: '1rem' }}
     >
-      <img src={fileIcon(file.type)} alt="" className="h-8 w-8 shrink-0" />
-      <Text size="2" weight="medium" className="min-w-0 flex-1 truncate text-neutral-900">
-        {file.name}
-      </Text>
-      <Text size="1" className="shrink-0 text-neutral-500">
+      <div className="flex min-w-0 items-center gap-3">
+        <img src={fileIcon(file.type)} alt="" className="h-8 w-8 shrink-0" />
+        <Text size="2" className="min-w-0 truncate text-neutral-900 transition-all duration-200 group-hover:font-semibold">
+          {file.name}
+        </Text>
+      </div>
+      <Text size="1" className="text-neutral-500 transition-all duration-200 group-hover:font-bold">
         {formatSize(file.size)}
       </Text>
-      <Text size="1" className="shrink-0 text-neutral-500">
+      <Text size="1" className="justify-self-end text-right text-neutral-500 transition-all duration-200 group-hover:font-bold">
         {formatDate(file.createdAt)}
       </Text>
     </button>
@@ -155,7 +161,7 @@ export function RecentsPage() {
         view === 'grid' ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
             {Array.from({ length: 8 }, (_, i) => (
-              <div key={i} className="flex flex-col items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4">
+              <div key={i} className="flex flex-col items-center gap-3 rounded-xl bg-white p-4">
                 <Skeleton className="h-12 w-12 rounded-lg" />
                 <div className="flex w-full flex-col items-center gap-1">
                   <Skeleton className="h-4 w-3/4" />
@@ -166,12 +172,19 @@ export function RecentsPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
+            <div className="grid items-center px-0 pb-1" style={{ gridTemplateColumns: LIST_GRID_TEMPLATE, gap: '1rem' }}>
+              <Skeleton className="h-3 w-10" />
+              <Skeleton className="h-3 w-10" />
+              <Skeleton className="h-3 w-14 justify-self-end" />
+            </div>
             {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white px-4 py-3">
-                <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
-                <Skeleton className="h-4 flex-1" />
-                <Skeleton className="h-3 w-14 shrink-0" />
-                <Skeleton className="h-3 w-14 shrink-0" />
+              <div key={i} className="grid items-center rounded-lg bg-white px-0 py-3" style={{ gridTemplateColumns: LIST_GRID_TEMPLATE, gap: '1rem' }}>
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
+                  <Skeleton className="h-4 w-3/4" />
+                </div>
+                <Skeleton className="h-3 w-14" />
+                <Skeleton className="h-3 w-14 justify-self-end" />
               </div>
             ))}
           </div>
@@ -199,6 +212,11 @@ export function RecentsPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
+            <div className="grid items-center px-0 pb-1" style={{ gridTemplateColumns: LIST_GRID_TEMPLATE, gap: '1rem' }}>
+              <span className="text-left text-xs font-medium text-neutral-400">Name</span>
+              <span className="text-left text-xs font-medium text-neutral-400">Size</span>
+              <span className="justify-self-end text-right text-xs font-medium text-neutral-400">Uploaded</span>
+            </div>
             {files.map((f) => (
               <FileRowList key={f.id} file={f} onOpen={openFile} />
             ))}

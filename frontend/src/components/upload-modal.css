@@ -182,6 +182,24 @@
   font-weight: 600;
   color: #171717;
   font-size: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.uppy-Dashboard-AddFiles-title::before {
+  content: '';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 1rem;
+  border: 2px dashed #d4d4d4;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='1.5' stroke='%23737373'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5'/%3E%3C/svg%3E")
+    center / 1.5rem no-repeat;
 }
 
 /* Info panel */

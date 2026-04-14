@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Uppy from '@uppy/core'
+import Dashboard from '@uppy/dashboard'
 import XHRUpload from '@uppy/xhr-upload'
-import DashboardModal from '@uppy/react/dashboard-modal'
 import { useUploadStore } from '../store/upload-store'
 import { getSupabase } from '../lib/supabase'
 
@@ -13,6 +14,9 @@ const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/
 
 export function UploadModal() {
   const { isOpen, close } = useUploadStore()
+  const installedRef = useRef(false)
+  const closeRef = useRef(close)
+  closeRef.current = close
 
   const uppy = useMemo(() => {
     return new Uppy({
@@ -29,10 +33,37 @@ export function UploadModal() {
     })
   }, [])
 
+  // install Dashboard plugin as soon as the portal div mounts
+  const containerCallback = useCallback((node: HTMLDivElement | null) => {
+    if (!node || installedRef.current) return
+    uppy.use(Dashboard, {
+      inline: false,
+      target: node,
+      proudlyDisplayPoweredByUppy: false,
+      note: 'PDF and DOCX files only, up to 10 MB each',
+      theme: 'light',
+      closeModalOnClickOutside: true,
+      onRequestCloseModal: () => { uppy.clear(); closeRef.current() },
+    })
+    installedRef.current = true
+  }, [uppy])
+
+  // open/close modal based on store state
+  useEffect(() => {
+    if (!installedRef.current) return
+    const dashboard = uppy.getPlugin('Dashboard') as InstanceType<typeof Dashboard> | undefined
+    if (!dashboard) return
+    if (isOpen) {
+      dashboard.openModal()
+    } else {
+      dashboard.closeModal()
+    }
+  }, [isOpen, uppy])
+
   // attach auth header when modal opens
   useEffect(() => {
     if (!isOpen) return
-    const setAuth = async () => {
+    ;(async () => {
       const supabase = getSupabase()
       if (!supabase) return
       const { data: { session } } = await supabase.auth.getSession()
@@ -41,8 +72,7 @@ export function UploadModal() {
           headers: { Authorization: `Bearer ${session.access_token}` },
         })
       }
-    }
-    setAuth()
+    })()
   }, [uppy, isOpen])
 
   // close modal + clear files on completion
@@ -50,25 +80,19 @@ export function UploadModal() {
     const handler = () => {
       setTimeout(() => {
         uppy.clear()
-        close()
+        closeRef.current()
       }, 1500)
     }
     uppy.on('complete', handler)
     return () => { uppy.off('complete', handler) }
-  }, [uppy, close])
+  }, [uppy])
 
   useEffect(() => {
     return () => uppy.destroy()
   }, [uppy])
 
-  return (
-    <DashboardModal
-      uppy={uppy}
-      open={isOpen}
-      onRequestClose={() => { uppy.clear(); close() }}
-      proudlyDisplayPoweredByUppy={false}
-      note="PDF and DOCX files only, up to 10 MB each"
-      theme="light"
-    />
+  return createPortal(
+    <div ref={containerCallback} />,
+    document.body,
   )
 }
