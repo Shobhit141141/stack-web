@@ -114,7 +114,7 @@ export function WorkspacePage() {
   return (
     <div
       data-no-link-import
-      className="flex min-h-[min(100dvh,56rem)] flex-1 flex-col lg:min-h-[calc(100dvh-8rem)]"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
       <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-3">
         <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-500">
@@ -135,7 +135,7 @@ export function WorkspacePage() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         <section className="flex min-h-[280px] min-w-0 flex-1 flex-col border-neutral-200 lg:min-h-0 lg:border-r">
           {workspace ? (
             <WorkspaceChatPanel workspaceId={workspace.id} workspaceName={workspace.name} />
@@ -148,7 +148,7 @@ export function WorkspacePage() {
           )}
         </section>
 
-        <aside className="flex w-full shrink-0 flex-col gap-3 border-neutral-200 bg-neutral-50/60 p-4 lg:w-[22rem] lg:min-h-0 lg:border-l xl:w-96">
+        <aside className="flex w-full shrink-0 flex-col gap-3 border-neutral-200 bg-neutral-50/60 p-4 lg:w-88 lg:min-h-0 lg:border-l xl:w-96">
           <div className="flex items-center justify-between gap-2">
             <Text size="3" weight="bold" className="text-neutral-900">
               Files

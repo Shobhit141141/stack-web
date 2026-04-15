@@ -7,6 +7,7 @@ import { GlobalLinkPaste } from '../components/GlobalLinkPaste'
 import { SearchBar } from '../components/SearchBar'
 import { PdfViewerModal } from '../components/PdfViewerModal'
 import { UploadModal } from '../components/UploadModal'
+import { VoiceButton } from '../components/VoiceButton'
 import { FullScreenLoader } from '../components/ui/full-screen-loader'
 import { routeMap } from '../lib/routes'
 import type { MeProfile } from '../types/auth'
@@ -45,6 +46,7 @@ export function RootLayout() {
       />
       <PdfViewerModal />
       <UploadModal />
+      <VoiceButton />
       {showFullLoader ? <FullScreenLoader /> : null}
       {showFullLoader ? null : showAppChrome ? (
         <Flex className="min-h-svh w-full">
@@ -90,7 +92,7 @@ export function RootLayout() {
                 </Button>
               </Flex>
             </Flex>
-            <Box className="flex-1 overflow-y-auto px-6 py-8">
+            <Box className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-8">
               <Outlet />
             </Box>
           </Box>

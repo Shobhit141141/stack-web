@@ -37,3 +37,4 @@ export async function requireAuth(
     next(err);
   }
 }
+

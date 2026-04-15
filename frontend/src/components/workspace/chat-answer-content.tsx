@@ -70,7 +70,7 @@ function FileRefChip({
       }`}
     >
       <img src={icon} alt="" className="size-3.5 shrink-0" />
-      <span className="max-w-[14rem] truncate">{displayName}</span>
+      <span className="max-w-56 truncate">{displayName}</span>
     </button>
   )
 }
@@ -90,7 +90,7 @@ export function ChatAnswerContent({ text, sources }: Props) {
   }
 
   return (
-    <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+    <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">
       {segments.map((seg, i) => {
         if (seg.kind === 'text') {
           return <span key={i}>{seg.value}</span>

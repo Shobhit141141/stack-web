@@ -215,7 +215,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         </Text>
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-6">
         {turns.length === 0 ? (
           <Text size="2" color="gray">
             Ask a question about your workspace files. Responses use the RAG pipeline scoped to
