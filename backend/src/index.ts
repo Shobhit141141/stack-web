@@ -2,7 +2,7 @@ import "dotenv/config";
 import { env } from "./config/env.js";
 import { maybeStartUrlIngestWorker } from "./workers/url-ingest.worker.js";
 import { log } from "./utils/logger/index.js";
-import app from "./app.js";
+import app, { assertQdrantForStartup } from "./app.js";
 
 const port = env.PORT;
 
@@ -10,6 +10,7 @@ maybeStartUrlIngestWorker();
 
 // start the express server asynchronously
 async function startServer() {
+  await assertQdrantForStartup();
   app.listen(port, () => {
     log.info(`Listening on http://localhost:${port}`);
   });

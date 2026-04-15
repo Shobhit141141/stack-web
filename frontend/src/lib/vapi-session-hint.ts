@@ -1,7 +1,7 @@
 // extra system line for live calls — dashboard prompts often say "file contents" only, so models refuse to call the tool for "list file names". this nudges tool use without replacing the whole assistant config.
 
 const STACK_FILE_TOOL_SESSION_HINT =
-  'Stack session hint: Any question about which files the user has, file names, uploads, or what is in their workspace is in scope. You must invoke the file-search server tool with a short query (for example "list all file names" or "what files are in my workspace"). Answer only from tool results for those facts. Do not refuse, and do not tell the user to open the app or check a file list manually instead of using the tool.'
+  'Stack session hint: Any question about which files the user has, file names, uploads, or what is in their workspace is in scope. You must invoke the file-search server tool with a short query (for example "list all file names" or "what files are in my workspace"). Answer only from tool results for those facts. Do not refuse, and do not tell the user to open the app or check a file list manually instead of using the tool. When the user asks to download, delete, or move a file, call the stackFileAction tool with action download, delete, or move and fileName or fileId when known. Responses may end with a machine block between <<<STACK_META>>> and <<<END_STACK_META>>>; never read that block or anything inside it aloud—it is for the app UI only.'
 
 // narrow message shape so Vapi.send (union param) is assignable here (contravariance)
 type StackFileToolSessionHintMessage = {

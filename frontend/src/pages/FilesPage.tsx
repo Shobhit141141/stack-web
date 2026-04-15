@@ -13,6 +13,7 @@ import {
   deleteFile,
 } from '../services/file-service'
 import {
+  assignFileToWorkspace,
   createWorkspace,
   fetchWorkspaces,
   type WorkspaceItem,
@@ -111,6 +112,22 @@ export function FilesPage() {
     await deleteFile(file.id)
     toast.success('File deleted')
     await loadFiles()
+  }
+
+  async function handleMoveToWorkspace(file: FileItem, workspaceId: string | null) {
+    try {
+      await assignFileToWorkspace(file.id, workspaceId)
+      const label =
+        workspaceId === null
+          ? 'unassigned'
+          : (workspaces.find((w) => w.id === workspaceId)?.name ?? 'workspace')
+      toast.success(
+        workspaceId === null ? 'File is now unassigned' : `Moved to ${label}`,
+      )
+      await loadFiles()
+    } catch {
+      toast.error('Could not move file')
+    }
   }
 
   async function handleCreateWorkspace(e: React.FormEvent) {
@@ -228,6 +245,8 @@ export function FilesPage() {
           onOpenFile={(f) => void openFile(f)}
           onRenameFile={(f) => setRenameTarget(f)}
           onDeleteFile={(f) => setDeleteTarget(f)}
+          workspaces={workspaces}
+          onMoveFileToWorkspace={handleMoveToWorkspace}
         />
 
         {!loading && !error && total > files.length ? (

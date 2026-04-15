@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import VapiModule from '@vapi-ai/web'
 import { getSupabase } from '../lib/supabase'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
+import { processAssistantVoiceText } from '../lib/stack-voice-meta'
 import {
   formatVapiConnectStage,
   VAPI_CONNECT_SLOW_HINT_MS,
@@ -121,9 +122,10 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
         if (msg.role === 'assistant' && typeof msg.transcript === 'string') {
           const text = msg.transcript.trim()
           if (!text) return
+          const { displayText } = processAssistantVoiceText(text)
           setLines((prev) => [
             ...prev,
-            { id: crypto.randomUUID(), role: 'assistant', text },
+            { id: crypto.randomUUID(), role: 'assistant', text: displayText },
           ])
         }
       }
@@ -162,10 +164,12 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
     }, VAPI_CONNECT_TIMEOUT_MS)
 
     let userId: string | undefined
+    let accessToken: string | undefined
     const supabase = getSupabase()
     if (supabase) {
       const { data: { session } } = await supabase.auth.getSession()
       userId = session?.user?.id
+      accessToken = session?.access_token
     }
 
     if (!userId) {
@@ -181,6 +185,7 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
     const meta = {
       userId,
       ...(workspaceId ? { workspaceId } : {}),
+      ...(accessToken ? { accessToken } : {}),
     }
 
     const runStart = async () =>

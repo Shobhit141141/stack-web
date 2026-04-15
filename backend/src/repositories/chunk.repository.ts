@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
-import { vectorSql } from "./pgvector.util.js";
+import { getChunkVectorStore } from "../vector-store/index.js";
+import type { ChunkVectorRecord } from "../vector-store/chunk-vector-store.interface.js";
+import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
+import { log } from "../utils/logger/index.js";
 
 export type ChunkInsertRow = {
   content: string;
@@ -14,11 +17,14 @@ function sanitizeChunkContentForPg(text: string): string {
   return text.replace(/\u0000/g, "");
 }
 
-// Replace all chunks for one content in a single transaction.
+// Replace all chunks for one content: postgres metadata + qdrant vectors.
 export async function replaceContentChunks(
   contentId: string,
   rows: ChunkInsertRow[]
 ): Promise<void> {
+  const ids = rows.map(() => randomUUID());
+
+  const tPg0 = Date.now();
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`
       DELETE FROM "file_chunks" WHERE "content_id" = ${contentId}::uuid
@@ -26,15 +32,34 @@ export async function replaceContentChunks(
     if (rows.length === 0) return;
 
     const fragments = rows.map(
-      (r) =>
-        Prisma.sql`(${randomUUID()}::uuid, ${contentId}::uuid, ${sanitizeChunkContentForPg(
+      (r, i) =>
+        Prisma.sql`(${ids[i]}::uuid, ${contentId}::uuid, ${sanitizeChunkContentForPg(
           r.content
-        )}, ${vectorSql(r.embedding)}, ${r.chunkIndex}::int, ${r.tokenCount}::int)`
+        )}, ${r.chunkIndex}::int, ${r.tokenCount}::int)`
     );
 
     await tx.$executeRaw`
-      INSERT INTO "file_chunks" ("id", "content_id", "content", "embedding", "chunk_index", "token_count")
+      INSERT INTO "file_chunks" ("id", "content_id", "content", "chunk_index", "token_count")
       VALUES ${Prisma.join(fragments)}
     `;
   });
+  const tPg1 = Date.now();
+
+  log.info(
+    filePipelinePanel("FILE PIPELINE · index · postgres file_chunks", contentId, {
+      rows: rows.length,
+      ms: tPg1 - tPg0,
+    })
+  );
+
+  const vectorRows: ChunkVectorRecord[] = rows.map((r, i) => ({
+    id: ids[i]!,
+    contentId,
+    content: r.content,
+    chunkIndex: r.chunkIndex,
+    tokenCount: r.tokenCount,
+    embedding: r.embedding,
+  }));
+
+  await getChunkVectorStore().replaceContentChunks(contentId, vectorRows);
 }

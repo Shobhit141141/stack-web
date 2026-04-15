@@ -139,13 +139,12 @@ model ChatMessage {
 }
 
 model FileChunk {
-  id         String                @id @default(uuid()) @db.Uuid
-  contentId  String                @map("content_id") @db.Uuid
+  id         String   @id @default(uuid()) @db.Uuid
+  contentId  String   @map("content_id") @db.Uuid
   content    String
-  embedding  Unsupported("vector(1536)")
-  chunkIndex Int                   @map("chunk_index") 
-  tokenCount Int                   @map("token_count")
-  createdAt  DateTime              @default(now()) @map("created_at")
+  chunkIndex Int      @map("chunk_index")
+  tokenCount Int      @map("token_count")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   contentRef Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
 

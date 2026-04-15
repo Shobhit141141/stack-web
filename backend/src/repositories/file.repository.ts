@@ -89,6 +89,29 @@ export async function findFileByIdForUser(id: string, userId: string) {
   });
 }
 
+// resolves file by exact name, else case-insensitive contains (max 10) for voice/tool hints.
+export async function findFilesByNameHintForUser(
+  userId: string,
+  hint: string
+): Promise<FileListRow[]> {
+  const trimmed = hint.trim();
+  if (!trimmed) return [];
+  const exact = await prisma.file.findFirst({
+    where: { userId, originalName: trimmed },
+    select: listSelect,
+  });
+  if (exact) return [exact];
+  return prisma.file.findMany({
+    where: {
+      userId,
+      originalName: { contains: trimmed, mode: "insensitive" },
+    },
+    take: 10,
+    orderBy: { updatedAt: "desc" },
+    select: listSelect,
+  });
+}
+
 // sets last_opened_at for a file owned by user. no-op if id/user mismatch.
 export async function touchFileLastOpened(fileId: string, userId: string) {
   await prisma.file.updateMany({
@@ -166,6 +189,18 @@ export async function findFilesByContentIdsForUser(
         contentIds.map((cid) => Prisma.sql`${cid}::uuid`)
       )})
   `;
+}
+
+// distinct contents the user has at least one file for (vector search filter scope)
+export async function findDistinctContentIdsForUser(
+  userId: string
+): Promise<string[]> {
+  const rows = await prisma.file.findMany({
+    where: { userId },
+    select: { contentId: true },
+    distinct: ["contentId"],
+  });
+  return rows.map((r) => r.contentId);
 }
 
 // resolves file IDs to content IDs for that user. Omits missing IDs.

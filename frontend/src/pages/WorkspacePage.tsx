@@ -7,7 +7,11 @@ import { FileRenameDeleteModals } from '../components/files/file-rename-delete-m
 import { ViewModeToggle } from '../components/files/view-mode-toggle'
 import { WorkspaceChatPanel } from '../components/workspace/workspace-chat-panel'
 import { deleteFile, fetchFileList, renameFile } from '../services/file-service'
-import { fetchWorkspaces, type WorkspaceItem } from '../services/workspace-service'
+import {
+  assignFileToWorkspace,
+  fetchWorkspaces,
+  type WorkspaceItem,
+} from '../services/workspace-service'
 import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
@@ -33,6 +37,7 @@ export function WorkspacePage() {
   const openFile = useOpenFile()
 
   const [workspace, setWorkspace] = useState<WorkspaceItem | null>(null)
+  const [allWorkspaces, setAllWorkspaces] = useState<WorkspaceItem[]>([])
   const [files, setFiles] = useState<FileItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +56,7 @@ export function WorkspacePage() {
     setError(null)
     try {
       const list = await fetchWorkspaces()
+      setAllWorkspaces(list)
       const ws = list.find((w) => w.id === workspaceId) ?? null
       setWorkspace(ws)
       if (!ws) {
@@ -126,6 +132,20 @@ export function WorkspacePage() {
     await load()
   }
 
+  async function handleMoveToWorkspace(file: FileItem, targetWorkspaceId: string | null) {
+    try {
+      await assignFileToWorkspace(file.id, targetWorkspaceId)
+      toast.success(
+        targetWorkspaceId === null
+          ? 'File is now unassigned'
+          : `Moved to ${allWorkspaces.find((w) => w.id === targetWorkspaceId)?.name ?? 'workspace'}`,
+      )
+      await load()
+    } catch {
+      toast.error('Could not move file')
+    }
+  }
+
   return (
     <div
       data-no-link-import
@@ -181,6 +201,8 @@ export function WorkspacePage() {
               onOpenFile={(f) => void openFile(f)}
               onRenameFile={(f) => setRenameTarget(f)}
               onDeleteFile={(f) => setDeleteTarget(f)}
+              workspaces={allWorkspaces}
+              onMoveFileToWorkspace={handleMoveToWorkspace}
             />
           </div>
         </aside>

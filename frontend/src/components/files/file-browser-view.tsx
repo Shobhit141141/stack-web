@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { DragEvent } from 'react'
 import type { FileItem } from '../../types/file'
 import type { BrowserViewMode } from '../../hooks/use-browser-view-mode'
+import type { WorkspaceItem } from '../../services/workspace-service'
 import {
   FILE_LIST_GRID_TEMPLATE,
   fileIcon,
@@ -25,6 +26,12 @@ type Props = {
   onOpenFile: (file: FileItem) => void
   onRenameFile?: (file: FileItem) => void | Promise<void>
   onDeleteFile?: (file: FileItem) => void | Promise<void>
+  /** when set with onMoveFileToWorkspace, context menu includes move flyout */
+  workspaces?: WorkspaceItem[]
+  onMoveFileToWorkspace?: (
+    file: FileItem,
+    workspaceId: string | null,
+  ) => void | Promise<void>
 }
 
 const FILE_DRAG_MIME = 'application/x-stack-file'
@@ -50,14 +57,26 @@ function FileActionsMenu({
   onOpen,
   onRename,
   onDelete,
+  workspaces,
+  onMoveFileToWorkspace,
 }: {
   state: FileActionsMenuState | null
   onClose: () => void
   onOpen: (file: FileItem) => void
   onRename?: (file: FileItem) => void | Promise<void>
   onDelete?: (file: FileItem) => void | Promise<void>
+  workspaces?: WorkspaceItem[]
+  onMoveFileToWorkspace?: (
+    file: FileItem,
+    workspaceId: string | null,
+  ) => void | Promise<void>
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const [moveOpen, setMoveOpen] = useState(false)
+
+  useEffect(() => {
+    setMoveOpen(false)
+  }, [state?.file.id])
 
   useLayoutEffect(() => {
     if (!state || !ref.current) return
@@ -105,6 +124,11 @@ function FileActionsMenu({
 
   if (!state) return null
 
+  const showMove = Boolean(workspaces && onMoveFileToWorkspace)
+  const flyoutLeft =
+    state.snapRightTo !== undefined
+  const file = state.file
+
   const menu = (
     <div
       ref={ref}
@@ -118,7 +142,7 @@ function FileActionsMenu({
         className="block w-full whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100"
         onClick={() => {
           onClose()
-          onOpen(state.file)
+          onOpen(file)
         }}
       >
         Open
@@ -130,11 +154,71 @@ function FileActionsMenu({
         className="block w-full whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
         onClick={() => {
           onClose()
-          void onRename?.(state.file)
+          void onRename?.(file)
         }}
       >
         Rename
       </button>
+      {showMove ? (
+        <div className="relative border-t border-neutral-100 pt-1">
+          <button
+            type="button"
+            role="menuitem"
+            aria-expanded={moveOpen}
+            aria-haspopup="menu"
+            className="flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100"
+            onClick={() => setMoveOpen((v) => !v)}
+          >
+            Move to workspace
+            <span className="text-neutral-400" aria-hidden>
+              {flyoutLeft ? '‹' : '›'}
+            </span>
+          </button>
+          {moveOpen ? (
+            <div
+              role="menu"
+              className={`absolute top-0 z-210 max-h-64 min-w-48 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-1 shadow-lg ${
+                flyoutLeft ? 'right-full mr-1' : 'left-full ml-1'
+              }`}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                disabled={file.workspaceId === null}
+                className="block w-full whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={() => {
+                  if (file.workspaceId === null) return
+                  onClose()
+                  setMoveOpen(false)
+                  void onMoveFileToWorkspace?.(file, null)
+                }}
+              >
+                Unassigned
+                {file.workspaceId === null ? ' (current)' : ''}
+              </button>
+              {workspaces!.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  role="menuitem"
+                  disabled={w.id === file.workspaceId}
+                  className="block w-full max-w-56 truncate rounded-md px-3 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-45"
+                  title={w.name}
+                  onClick={() => {
+                    if (w.id === file.workspaceId) return
+                    onClose()
+                    setMoveOpen(false)
+                    void onMoveFileToWorkspace?.(file, w.id)
+                  }}
+                >
+                  {w.name}
+                  {w.id === file.workspaceId ? ' (current)' : ''}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <button
         type="button"
         role="menuitem"
@@ -142,7 +226,7 @@ function FileActionsMenu({
         className="block w-full whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
         onClick={() => {
           onClose()
-          void onDelete?.(state.file)
+          void onDelete?.(file)
         }}
       >
         Delete
@@ -299,6 +383,8 @@ export function FileBrowserView({
   onOpenFile,
   onRenameFile,
   onDeleteFile,
+  workspaces,
+  onMoveFileToWorkspace,
 }: Props) {
   const [menuState, setMenuState] = useState<FileActionsMenuState | null>(null)
 
@@ -383,6 +469,8 @@ export function FileBrowserView({
           onOpen={onOpenFile}
           onRename={onRenameFile}
           onDelete={onDeleteFile}
+          workspaces={workspaces}
+          onMoveFileToWorkspace={onMoveFileToWorkspace}
         />
       </div>
     )
@@ -416,6 +504,8 @@ export function FileBrowserView({
         onOpen={onOpenFile}
         onRename={onRenameFile}
         onDelete={onDeleteFile}
+        workspaces={workspaces}
+        onMoveFileToWorkspace={onMoveFileToWorkspace}
       />
     </div>
   )

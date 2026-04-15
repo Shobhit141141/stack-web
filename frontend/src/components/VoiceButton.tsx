@@ -12,13 +12,17 @@ export function VoiceButton() {
     assistantLive,
     assistantTokenLive,
     turns,
-    connectStage,
+    referredFiles,
+    workspaces,
     connectSlow,
     lastConnectError,
     clearLastConnectError,
     configured,
     toggle,
     stop,
+    downloadReferredFile,
+    deleteReferredFile,
+    moveReferredFile,
   } = useVapi()
 
   if (!configured) return null
@@ -49,9 +53,13 @@ export function VoiceButton() {
             assistantText={assistantText}
             assistantStreaming={assistantStreaming}
             turns={turns}
-            connectStage={connectStage}
+            referredFiles={referredFiles}
+            workspaces={workspaces}
             connectSlow={connectSlow}
             onEnd={stop}
+            onDownloadFile={downloadReferredFile}
+            onDeleteFile={deleteReferredFile}
+            onMoveFile={moveReferredFile}
           />
         ) : null}
       </AnimatePresence>

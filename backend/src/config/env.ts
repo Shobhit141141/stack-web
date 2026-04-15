@@ -5,6 +5,7 @@ const REQUIRED_IN_PRODUCTION = [
   "DIRECT_URL",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
+  "QDRANT_URL",
 ] as const;
 
 function assertProductionEnv(): void {
@@ -120,6 +121,11 @@ export const env = {
   })(),
 
   REDIS_URL: process.env.REDIS_URL?.trim() || undefined,
+
+  QDRANT_URL: process.env.QDRANT_URL?.trim(),
+  QDRANT_API_KEY: process.env.QDRANT_API_KEY?.trim(),
+  QDRANT_COLLECTION:
+    process.env.QDRANT_COLLECTION?.trim() || "file_chunks",
 
   URL_FETCH_MAX_BYTES: Math.min(
     50 * 1024 * 1024,

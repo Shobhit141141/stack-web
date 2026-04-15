@@ -128,7 +128,7 @@ function buildAskQuery(userText: string, fileNames: string[]): string {
 function AssistantTypingRow() {
   return (
     <div
-      className="mr-auto flex max-w-[min(100%,42rem)] items-center gap-1 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3"
+      className="mr-auto flex max-w-[min(100%,42rem)] items-center gap-1 rounded-xl pr-4 pl-2 py-3"
       aria-live="polite"
     >
       <span className="sr-only">Assistant is typing</span>
@@ -136,7 +136,7 @@ function AssistantTypingRow() {
         {[0, 150, 300].map((delayMs) => (
           <span
             key={delayMs}
-            className="h-2 w-2 rounded-full bg-neutral-400 motion-safe:animate-bounce"
+            className="h-1 w-1 rounded-full bg-black motion-safe:animate-bounce"
             style={{ animationDelay: `${delayMs}ms` }}
           />
         ))}

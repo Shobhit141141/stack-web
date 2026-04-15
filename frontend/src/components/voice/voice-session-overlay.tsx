@@ -1,7 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { HiOutlineMicrophone, HiOutlineXMark } from 'react-icons/hi2'
-import type { VapiStatus, VoiceTurn } from '../../hooks/use-vapi'
+import {
+  HiOutlineArrowDownTray,
+  HiOutlineFolderArrowDown,
+  HiOutlineMicrophone,
+  HiOutlineTrash,
+  HiOutlineXMark,
+} from 'react-icons/hi2'
+import type { VapiStatus, VoiceReferredFile, VoiceTurn } from '../../hooks/use-vapi'
+import type { WorkspaceItem } from '../../services/workspace-service'
 
 type Props = {
   status: VapiStatus
@@ -9,9 +16,39 @@ type Props = {
   assistantText: string
   assistantStreaming: boolean
   turns: VoiceTurn[]
-  connectStage: string
+  referredFiles: VoiceReferredFile[]
+  workspaces: WorkspaceItem[]
   connectSlow: boolean
   onEnd: () => void
+  onDownloadFile: (fileId: string) => void
+  onDeleteFile: (fileId: string, fileName: string) => void
+  onMoveFile: (fileId: string, workspaceId: string | null) => void
+}
+
+const CONNECTING_CHATTER = [
+  'Warming up the line…',
+  'Finding a quiet lane…',
+  'Syncing with Stack…',
+  'Almost there…',
+  'Negotiating audio…',
+  'Handshaking with assistants…',
+  'Polishing the waveform…',
+  'Stretching the cables (virtually)…',
+  'Teaching pixels to dance…',
+  'Convincing electrons to cooperate…',
+  'Calibrating good vibes…',
+  'One more hop…',
+  'Buffering optimism…',
+  'Still faster than a meeting…',
+  'Hang tight…',
+] as const
+
+function pickRandomConnectingLine(exclude?: string): string {
+  const pool =
+    exclude && CONNECTING_CHATTER.length > 1
+      ? CONNECTING_CHATTER.filter((s) => s !== exclude)
+      : [...CONNECTING_CHATTER]
+  return pool[Math.floor(Math.random() * pool.length)]!
 }
 
 // full-screen voice session: blurred backdrop, morphing gradient blob, glass transcript (no per-chunk remount — text updates in place for streaming)
@@ -21,18 +58,33 @@ export function VoiceSessionOverlay({
   assistantText,
   assistantStreaming,
   turns,
-  connectStage,
+  referredFiles,
+  workspaces,
   connectSlow,
   onEnd,
+  onDownloadFile,
+  onDeleteFile,
+  onMoveFile,
 }: Props) {
   const isConnecting = status === 'connecting'
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [moveTargetByFile, setMoveTargetByFile] = useState<Record<string, string>>({})
+  const [connectingLine, setConnectingLine] = useState(() => pickRandomConnectingLine())
+
+  useEffect(() => {
+    if (!isConnecting) return
+    setConnectingLine(pickRandomConnectingLine())
+    const id = window.setInterval(() => {
+      setConnectingLine((prev) => pickRandomConnectingLine(prev))
+    }, 2400)
+    return () => window.clearInterval(id)
+  }, [isConnecting])
 
   // auto-scroll when new turns arrive or live text updates
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [turns, userText, assistantText])
+  }, [turns, userText, assistantText, referredFiles])
 
   return (
     <motion.div
@@ -118,9 +170,9 @@ export function VoiceSessionOverlay({
               <p className="text-sm font-medium tracking-wide text-white/90">
                 Connecting…
               </p>
-              {connectStage ? (
-                <p className="text-xs text-white/65">{connectStage}</p>
-              ) : null}
+              <p className="min-h-5 text-xs text-white/65 transition-opacity duration-300">
+                {connectingLine}
+              </p>
               {connectSlow ? (
                 <p className="text-xs leading-snug text-amber-200/90">
                   Still waiting — allow microphone access if prompted, or check VPN / network.
@@ -180,6 +232,92 @@ export function VoiceSessionOverlay({
               </div>
             ) : null}
           </div>
+
+          {referredFiles.length > 0 ? (
+            <div className="mt-4 border-t border-white/15 pt-4">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/55">
+                Referenced files
+              </p>
+              <p className="mb-3 text-xs leading-snug text-white/60">
+                Say “download”, “delete”, or “move to … workspace”, or use the actions below.
+              </p>
+              <ul className="flex flex-col gap-3">
+                {referredFiles.map((f) => (
+                  <li
+                    key={f.fileId}
+                    className="rounded-xl border border-white/15 bg-white/5 px-3 py-2.5"
+                  >
+                    <p className="truncate text-sm font-medium text-white/95" title={f.fileName}>
+                      {f.fileName}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onDownloadFile(f.fileId)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/15"
+                      >
+                        <HiOutlineArrowDownTray className="size-3.5" aria-hidden />
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            typeof window !== 'undefined' &&
+                            window.confirm(`Delete “${f.fileName}”?`)
+                          ) {
+                            onDeleteFile(f.fileId, f.fileName)
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/35 bg-red-500/15 px-2.5 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/25"
+                      >
+                        <HiOutlineTrash className="size-3.5" aria-hidden />
+                        Delete
+                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <HiOutlineFolderArrowDown
+                          className="size-3.5 text-white/50"
+                          aria-hidden
+                        />
+                        <select
+                          aria-label={`Move ${f.fileName}`}
+                          className="max-w-[200px] rounded-lg border border-white/20 bg-neutral-950/60 px-2 py-1.5 text-xs text-white/90 outline-none focus:ring-1 focus:ring-violet-400/60"
+                          value={moveTargetByFile[f.fileId] ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setMoveTargetByFile((prev) => ({ ...prev, [f.fileId]: v }))
+                          }}
+                        >
+                          <option value="">Move to…</option>
+                          <option value="__unassigned__">Unassigned</option>
+                          {workspaces.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!moveTargetByFile[f.fileId]}
+                          onClick={() => {
+                            const v = moveTargetByFile[f.fileId]
+                            if (!v) return
+                            onMoveFile(
+                              f.fileId,
+                              v === '__unassigned__' ? null : v,
+                            )
+                          }}
+                          className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 enabled:hover:bg-white/15 disabled:opacity-40"
+                        >
+                          Move
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
 
         <button

@@ -1,22 +1,33 @@
 import type { NextFunction, Request, Response } from "express";
 import * as askService from "../services/ask.service.js";
+import { handleStackFileAction } from "../services/vapi-file-action.service.js";
 import {
   hasEmbeddingApiKey,
   hasRagCompletionConfigured,
 } from "../config/env.js";
 import { log } from "../utils/logger/index.js";
+import { appendStackMetaIfNeeded } from "../utils/vapi-stack-meta.js";
 
 /**
- * Vapi webhook — server URL for tools. Forwards the user query to the RAG pipeline.
+ * Vapi webhook — server URL for tools. RAG (askFiles / apiCalls), file actions (stackFileAction).
+ *
+ * Add a server tool in the Vapi assistant (same webhook URL): name `stackFileAction`, e.g.
+ * parameters: { type: "object", properties: {
+ *   action: { type: "string", enum: ["download","delete","move"] },
+ *   fileId: { type: "string" }, fileName: { type: "string" },
+ *   workspaceId: { type: "string" }, workspaceName: { type: "string" }
+ * }, required: ["action"] }
+ * Client must send `accessToken` (Supabase JWT) in call metadata for download/delete (storage).
  *
  * Payload shapes:
- * - message.type "tool-calls" (current): toolCalls[] or toolCallList[], names askFiles | apiCalls
+ * - message.type "tool-calls" (current): toolCalls[] or toolCallList[]
  * - message.type "function-call" (legacy): functionCall.name askFiles, parameters.query
  *
  * tool-calls response per Vapi docs:
  * { results: [{ name, toolCallId, result: "<string>" }] }
  */
 const RAG_TOOL_NAMES = new Set(["askfiles", "apicalls"]);
+const FILE_ACTION_TOOL_NAMES = new Set(["stackfileaction"]);
 
 // serializes webhook body for logs; caps length to keep output readable
 function vapiWebhookBodySummary(body: unknown): string {
@@ -46,7 +57,26 @@ function parseQueryFromArguments(raw: unknown): string {
   return "";
 }
 
-type NormalizedToolCall = { toolCallId: string; name: string; query: string };
+function parseFunctionArguments(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === "string") {
+    try {
+      return parseFunctionArguments(JSON.parse(raw) as unknown);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
+type NormalizedToolCall = {
+  toolCallId: string;
+  name: string;
+  args: Record<string, unknown>;
+};
 
 // prefers OpenAI-style toolCalls[], else flat toolCallList[]
 function collectNormalizedToolCalls(
@@ -61,11 +91,10 @@ function collectNormalizedToolCalls(
       const o = t as Record<string, unknown>;
       const toolCallId = typeof o.id === "string" ? o.id : "";
       const fn = o.function as Record<string, unknown> | undefined;
-      const name =
-        fn && typeof fn.name === "string" ? fn.name : "";
-      const query = fn ? parseQueryFromArguments(fn.arguments) : "";
-      if (toolCallId && name && query) {
-        out.push({ toolCallId, name, query });
+      const name = fn && typeof fn.name === "string" ? fn.name : "";
+      const args = fn ? parseFunctionArguments(fn.arguments) : {};
+      if (toolCallId && name) {
+        out.push({ toolCallId, name, args });
       }
     }
     return out;
@@ -79,18 +108,16 @@ function collectNormalizedToolCalls(
       const toolCallId = typeof o.id === "string" ? o.id : "";
       const fn = o.function as Record<string, unknown> | undefined;
       if (fn && typeof fn.name === "string") {
-        const query = parseQueryFromArguments(fn.arguments);
-        if (toolCallId && fn.name && query) {
-          out.push({ toolCallId, name: fn.name, query });
+        const args = parseFunctionArguments(fn.arguments);
+        if (toolCallId && fn.name) {
+          out.push({ toolCallId, name: fn.name, args });
         }
         continue;
       }
       const name = typeof o.name === "string" ? o.name : "";
-      const query = parseQueryFromArguments(
-        o.parameters ?? o.arguments
-      );
-      if (toolCallId && name && query) {
-        out.push({ toolCallId, name, query });
+      const args = parseFunctionArguments(o.parameters ?? o.arguments);
+      if (toolCallId && name) {
+        out.push({ toolCallId, name, args });
       }
     }
   }
@@ -98,18 +125,26 @@ function collectNormalizedToolCalls(
   return out;
 }
 
-type VapiRagContext = { userId: string | null; workspaceId?: string };
+type VapiRagContext = {
+  userId: string | null;
+  workspaceId?: string;
+  accessToken: string | null;
+};
 
-// reads userId + optional workspaceId from vapi.start assistantOverrides.metadata (and call/chat if present)
+// reads userId, optional workspaceId, optional accessToken (for storage-backed file actions) from call metadata
 function extractVapiRagContext(
   body: Record<string, unknown>,
   msg: Record<string, unknown> | undefined
 ): VapiRagContext {
   const readMeta = (
     meta: unknown
-  ): { userId: string | null; workspaceId?: string } => {
+  ): {
+    userId: string | null;
+    workspaceId?: string;
+    accessToken: string | null;
+  } => {
     if (!meta || typeof meta !== "object") {
-      return { userId: null };
+      return { userId: null, accessToken: null };
     }
     const o = meta as Record<string, unknown>;
     const userId =
@@ -118,7 +153,11 @@ function extractVapiRagContext(
       typeof o.workspaceId === "string" && o.workspaceId.length > 0
         ? o.workspaceId
         : undefined;
-    return { userId, workspaceId };
+    const accessToken =
+      typeof o.accessToken === "string" && o.accessToken.length > 0
+        ? o.accessToken
+        : null;
+    return { userId, workspaceId, accessToken };
   };
 
   const sources: unknown[] = [];
@@ -137,13 +176,14 @@ function extractVapiRagContext(
 
   let userId: string | null = null;
   let workspaceId: string | undefined;
+  let accessToken: string | null = null;
   for (const s of sources) {
     const r = readMeta(s);
     if (!userId && r.userId) userId = r.userId;
     if (!workspaceId && r.workspaceId) workspaceId = r.workspaceId;
-    if (userId && workspaceId) break;
+    if (!accessToken && r.accessToken) accessToken = r.accessToken;
   }
-  return { userId, workspaceId };
+  return { userId, workspaceId, accessToken };
 }
 
 export async function vapiWebhook(
@@ -165,105 +205,144 @@ export async function vapiWebhook(
       return;
     }
 
-    const { userId, workspaceId } = extractVapiRagContext(body ?? {}, msg);
+    const { userId, workspaceId, accessToken } = extractVapiRagContext(
+      body ?? {},
+      msg
+    );
 
     // --- tool-calls (OpenAI-style tools / server URL) ---
     if (msg.type === "tool-calls") {
       const tools = collectNormalizedToolCalls(msg);
-      const match = tools.find((t) =>
-        RAG_TOOL_NAMES.has(t.name.toLowerCase())
-      );
+      if (tools.length === 0) {
+        log.info("vapi webhook: tool-calls — empty tool list");
+        res.json({});
+        return;
+      }
 
-      if (!match) {
-        const names = tools.map((t) => t.name).join(", ") || "none";
+      const results: { name: string; toolCallId: string; result: string }[] =
+        [];
+
+      for (const t of tools) {
+        const ln = t.name.toLowerCase();
+
+        if (FILE_ACTION_TOOL_NAMES.has(ln)) {
+          if (!userId) {
+            results.push({
+              name: t.name,
+              toolCallId: t.toolCallId,
+              result:
+                "Authentication required. Please sign in and start voice from the app.",
+            });
+            continue;
+          }
+          try {
+            const out = await handleStackFileAction({
+              userId,
+              accessToken,
+              args: t.args,
+            });
+            results.push({
+              name: t.name,
+              toolCallId: t.toolCallId,
+              result: appendStackMetaIfNeeded(out.result, out.meta),
+            });
+          } catch (err) {
+            log.error(
+              `vapi stackFileAction: ${err instanceof Error ? err.message : err}`
+            );
+            results.push({
+              name: t.name,
+              toolCallId: t.toolCallId,
+              result: "That file action could not be completed.",
+            });
+          }
+          continue;
+        }
+
+        if (RAG_TOOL_NAMES.has(ln)) {
+          const query =
+            String(t.args.query ?? "").trim() ||
+            parseQueryFromArguments(t.args as unknown);
+
+          if (!query) {
+            results.push({
+              name: t.name,
+              toolCallId: t.toolCallId,
+              result: "Please ask a question.",
+            });
+            continue;
+          }
+
+          if (!userId) {
+            results.push({
+              name: t.name,
+              toolCallId: t.toolCallId,
+              result:
+                "Authentication required. Please sign in first.",
+            });
+            continue;
+          }
+
+          if (!hasEmbeddingApiKey() || !hasRagCompletionConfigured()) {
+            results.push({
+              name: t.name,
+              toolCallId: t.toolCallId,
+              result: "Search is not configured on this server.",
+            });
+            continue;
+          }
+
+          log.info(
+            `Vapi tool-calls — userId=${userId}${workspaceId ? ` workspaceId=${workspaceId}` : ""} tool=${t.name} query="${query.slice(0, 80)}"`
+          );
+
+          const ragResult = await askService.askUserFiles({
+            userId,
+            query,
+            ...(workspaceId ? { workspaceId } : {}),
+          });
+
+          const answer =
+            ragResult.answer || "I couldn't find an answer in your files.";
+          const sourceNames = ragResult.sources
+            .map((s) => s.fileName)
+            .filter(Boolean)
+            .slice(0, 3);
+
+          let text = sourceNames.length
+            ? `${answer}\n\nSources: ${sourceNames.join(", ")}`
+            : answer;
+
+          text = appendStackMetaIfNeeded(text, {
+            sources: ragResult.sources.map((s) => ({
+              fileId: s.fileId,
+              fileName: s.fileName,
+            })),
+          });
+
+          log.info(
+            `vapi webhook: askUserFiles ok — answerLen=${text.length} sourceFiles=${ragResult.sources.length}`
+          );
+
+          results.push({
+            name: t.name,
+            toolCallId: t.toolCallId,
+            result: text,
+          });
+          continue;
+        }
+      }
+
+      if (results.length === 0) {
+        const names = tools.map((x) => x.name).join(", ") || "none";
         log.info(
-          `vapi webhook: tool-calls — no askFiles/apiCalls tool (got: ${names})`
+          `vapi webhook: tool-calls — no handled tools (got: ${names})`
         );
         res.json({});
         return;
       }
 
-      if (!match.query) {
-        log.info("vapi webhook: tool-calls — empty query");
-        res.json({
-          results: [
-            {
-              name: match.name,
-              toolCallId: match.toolCallId,
-              result: "Please ask a question.",
-            },
-          ],
-        });
-        return;
-      }
-
-      if (!userId) {
-        log.info(
-          "vapi webhook: tool-calls — no userId (expected assistant/call metadata from client)"
-        );
-        res.json({
-          results: [
-            {
-              name: match.name,
-              toolCallId: match.toolCallId,
-              result:
-                "Authentication required. Please sign in first.",
-            },
-          ],
-        });
-        return;
-      }
-
-      if (!hasEmbeddingApiKey() || !hasRagCompletionConfigured()) {
-        log.info(
-          "vapi webhook: tool-calls — embedding or RAG completion not configured"
-        );
-        res.json({
-          results: [
-            {
-              name: match.name,
-              toolCallId: match.toolCallId,
-              result: "Search is not configured on this server.",
-            },
-          ],
-        });
-        return;
-      }
-
-      log.info(
-        `Vapi tool-calls — userId=${userId}${workspaceId ? ` workspaceId=${workspaceId}` : ""} tool=${match.name} query="${match.query.slice(0, 80)}"`
-      );
-
-      const result = await askService.askUserFiles({
-        userId,
-        query: match.query,
-        ...(workspaceId ? { workspaceId } : {}),
-      });
-
-      const answer =
-        result.answer || "I couldn't find an answer in your files.";
-      const sources = result.sources
-        .map((s) => s.fileName)
-        .filter(Boolean)
-        .slice(0, 3);
-
-      const text = sources.length
-        ? `${answer}\n\nSources: ${sources.join(", ")}`
-        : answer;
-
-      log.info(
-        `vapi webhook: askUserFiles ok — answerLen=${text.length} sourceFiles=${sources.length} preview="${text.slice(0, 120).replace(/\n/g, " ")}"`
-      );
-
-      res.json({
-        results: [
-          {
-            name: match.name,
-            toolCallId: match.toolCallId,
-            result: text,
-          },
-        ],
-      });
+      res.json({ results });
       return;
     }
 

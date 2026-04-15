@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { FileBrowserView } from '../components/files/file-browser-view'
@@ -8,6 +8,11 @@ import { useRecentFiles } from '../hooks/use-recent-files'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
 import { deleteFile, renameFile } from '../services/file-service'
+import {
+  assignFileToWorkspace,
+  fetchWorkspaces,
+  type WorkspaceItem,
+} from '../services/workspace-service'
 import type { FileItem } from '../types/file'
 
 const VIEW_MODE_KEY = 'stack-recents-view'
@@ -18,6 +23,11 @@ export function RecentsPage() {
   const openFile = useOpenFile()
   const [renameTarget, setRenameTarget] = useState<FileItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
+  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
+
+  useEffect(() => {
+    void fetchWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]))
+  }, [])
 
   async function handleRenameConfirm(file: FileItem, newName: string) {
     await renameFile(file.id, newName)
@@ -29,6 +39,22 @@ export function RecentsPage() {
     await deleteFile(file.id)
     toast.success('File deleted')
     await refetch()
+  }
+
+  async function handleMoveToWorkspace(file: FileItem, workspaceId: string | null) {
+    try {
+      await assignFileToWorkspace(file.id, workspaceId)
+      const label =
+        workspaceId === null
+          ? 'unassigned'
+          : (workspaces.find((w) => w.id === workspaceId)?.name ?? 'workspace')
+      toast.success(
+        workspaceId === null ? 'File is now unassigned' : `Moved to ${label}`,
+      )
+      await refetch()
+    } catch {
+      toast.error('Could not move file')
+    }
   }
 
   return (
@@ -50,6 +76,8 @@ export function RecentsPage() {
         onOpenFile={(f) => void openFile(f)}
         onRenameFile={(f) => setRenameTarget(f)}
         onDeleteFile={(f) => setDeleteTarget(f)}
+        workspaces={workspaces}
+        onMoveFileToWorkspace={handleMoveToWorkspace}
       />
 
       <FileRenameDeleteModals

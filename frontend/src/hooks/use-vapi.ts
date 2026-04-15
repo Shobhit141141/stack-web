@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import toast from 'react-hot-toast'
 import VapiModule from '@vapi-ai/web'
 
 // CJS default export compat — Vite may or may not unwrap it
 const Vapi = ('default' in VapiModule ? (VapiModule as any).default : VapiModule) as typeof VapiModule
 import { getSupabase } from '../lib/supabase'
+import {
+  processAssistantVoiceText,
+  stripStackMetaFromTranscript,
+} from '../lib/stack-voice-meta'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
+import { deleteFile, fetchFileSignedUrl } from '../services/file-service'
+import {
+  assignFileToWorkspace,
+  fetchWorkspaces,
+  type WorkspaceItem,
+} from '../services/workspace-service'
 import {
   formatVapiConnectStage,
   VAPI_CONNECT_SLOW_HINT_MS,
@@ -21,6 +32,11 @@ export type VoiceTurn = {
   id: string
   role: 'user' | 'assistant'
   text: string
+}
+
+export type VoiceReferredFile = {
+  fileId: string
+  fileName: string
 }
 
 function extractModelOutputChunk(
@@ -78,11 +94,23 @@ export function useVapi() {
   const [assistantLive, setAssistantLive] = useState('')
   const [assistantTokenLive, setAssistantTokenLive] = useState('')
   const [turns, setTurns] = useState<VoiceTurn[]>([])
+  const [referredFiles, setReferredFiles] = useState<VoiceReferredFile[]>([])
+  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [connectStage, setConnectStage] = useState('')
   const [connectSlow, setConnectSlow] = useState(false)
   const [lastConnectError, setLastConnectError] = useState<string | null>(null)
 
   const vapiRef = useRef<InstanceType<typeof Vapi> | null>(null)
+  const referredFilesRef = useRef<VoiceReferredFile[]>([])
+  const workspacesRef = useRef<WorkspaceItem[]>([])
+
+  useEffect(() => {
+    referredFilesRef.current = referredFiles
+  }, [referredFiles])
+
+  useEffect(() => {
+    workspacesRef.current = workspaces
+  }, [workspaces])
   const assistantTokenAccRef = useRef('')
   const sessionAliveRef = useRef(false)
   const connectTimersRef = useRef<{
@@ -103,6 +131,97 @@ export function useVapi() {
     setLastConnectError(null)
   }, [])
 
+  const downloadReferredFile = useCallback(async (fileId: string) => {
+    try {
+      const url = await fetchFileSignedUrl(fileId)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      toast.success('Download started')
+    } catch {
+      toast.error('Could not download')
+    }
+  }, [])
+
+  const deleteReferredFile = useCallback(async (fileId: string, fileName: string) => {
+    try {
+      await deleteFile(fileId)
+      toast.success(`Deleted ${fileName}`)
+      setReferredFiles((prev) => prev.filter((x) => x.fileId !== fileId))
+    } catch {
+      toast.error('Could not delete')
+    }
+  }, [])
+
+  const moveReferredFile = useCallback(
+    async (fileId: string, workspaceId: string | null) => {
+      try {
+        await assignFileToWorkspace(fileId, workspaceId)
+        const label = workspaceId
+          ? workspacesRef.current.find((w) => w.id === workspaceId)?.name ?? 'workspace'
+          : 'Unassigned'
+        toast.success(`Moved to ${label}`)
+      } catch {
+        toast.error('Could not move file')
+      }
+    },
+    [],
+  )
+
+  const runVoiceFileCommand = useCallback(
+    async (utterance: string) => {
+      const u = utterance.toLowerCase()
+      const files = referredFilesRef.current
+      if (files.length === 0) return
+      const wantsDl = /\b(download|save)\b/.test(u)
+      const wantsDel = /\b(delete|remove|trash)\b/.test(u)
+      const wantsMove = /\bmove\b/.test(u) && /\bto\b/.test(u)
+      if (!wantsDl && !wantsDel && !wantsMove) return
+
+      let file = files[0]!
+      if (files.length > 1) {
+        const found = files.find((f) =>
+          u.includes(f.fileName.toLowerCase()),
+        )
+        if (!found) {
+          toast.error('Say which file name from the list below.')
+          return
+        }
+        file = found
+      }
+
+      if (wantsDl) {
+        await downloadReferredFile(file.fileId)
+        return
+      }
+      if (wantsDel) {
+        await deleteReferredFile(file.fileId, file.fileName)
+        return
+      }
+      const m =
+        u.match(/\bto\s+(.+?)(?:\.|$)/i) ?? u.match(/\binto\s+(.+?)(?:\.|$)/i)
+      const hint = m?.[1]?.trim().replace(/[.!?]+$/, '') ?? ''
+      if (!hint) {
+        toast.error('Say where to move, e.g. move to Design.')
+        return
+      }
+      const wss = workspacesRef.current
+      const exact = wss.find((w) => w.name.toLowerCase() === hint.toLowerCase())
+      const partial = wss.filter((w) =>
+        w.name.toLowerCase().includes(hint.toLowerCase()),
+      )
+      const ws = exact ?? (partial.length === 1 ? partial[0]! : null)
+      if (!ws) {
+        toast.error(
+          partial.length > 1
+            ? 'Which workspace? Say the full name.'
+            : 'Workspace not found.',
+        )
+        return
+      }
+      await moveReferredFile(file.fileId, ws.id)
+    },
+    [deleteReferredFile, downloadReferredFile, moveReferredFile],
+  )
+
   useEffect(() => {
     if (!VAPI_PUBLIC_KEY) return
 
@@ -121,6 +240,8 @@ export function useVapi() {
       assistantTokenAccRef.current = ''
       setAssistantTokenLive('')
       sessionAliveRef.current = true
+      setReferredFiles([])
+      void fetchWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]))
       sendStackFileToolSessionHint(vapi)
     })
 
@@ -176,7 +297,12 @@ export function useVapi() {
           setAssistantLive('')
           setTranscript(text)
           if (text.trim()) {
-            setTurns((prev) => [...prev, { id: crypto.randomUUID(), role: 'user', text: text.trim() }])
+            const trimmed = text.trim()
+            setTurns((prev) => [
+              ...prev,
+              { id: crypto.randomUUID(), role: 'user', text: trimmed },
+            ])
+            void runVoiceFileCommand(trimmed)
           }
         }
       }
@@ -185,7 +311,8 @@ export function useVapi() {
         if (msg.transcriptType === 'partial') {
           assistantTokenAccRef.current = ''
           setAssistantTokenLive('')
-          setAssistantLive(typeof msg.transcript === 'string' ? msg.transcript : '')
+          const raw = typeof msg.transcript === 'string' ? msg.transcript : ''
+          setAssistantLive(stripStackMetaFromTranscript(raw))
         }
         if (msg.transcriptType === 'final') {
           const text = typeof msg.transcript === 'string' ? msg.transcript : ''
@@ -194,7 +321,17 @@ export function useVapi() {
           setAssistantLive('')
           setAssistantMessage(text)
           if (text.trim()) {
-            setTurns((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: text.trim() }])
+            const { displayText, meta } = processAssistantVoiceText(text.trim())
+            setTurns((prev) => [
+              ...prev,
+              { id: crypto.randomUUID(), role: 'assistant', text: displayText },
+            ])
+            if (meta?.sources?.length) {
+              setReferredFiles(meta.sources)
+            }
+            if (meta?.clientAction?.type === 'openUrl' && meta.clientAction.url) {
+              window.open(meta.clientAction.url, '_blank', 'noopener,noreferrer')
+            }
           }
         }
       }
@@ -207,7 +344,7 @@ export function useVapi() {
       vapi.stop()
       vapiRef.current = null
     }
-  }, [VAPI_PUBLIC_KEY, clearConnectTimers])
+  }, [VAPI_PUBLIC_KEY, clearConnectTimers, runVoiceFileCommand])
 
   const start = useCallback(async () => {
     const vapi = vapiRef.current
@@ -226,6 +363,7 @@ export function useVapi() {
     setLastConnectError(null)
     setStatus('connecting')
     setTurns([])
+    setReferredFiles([])
 
     connectTimersRef.current.slow = setTimeout(
       () => setConnectSlow(true),
@@ -241,16 +379,23 @@ export function useVapi() {
     }, VAPI_CONNECT_TIMEOUT_MS)
 
     let userId: string | undefined
+    let accessToken: string | undefined
     const supabase = getSupabase()
     if (supabase) {
       const { data: { session } } = await supabase.auth.getSession()
       userId = session?.user?.id
+      accessToken = session?.access_token
     }
 
     const runStart = async () =>
       vapi.start(
         VAPI_ASSISTANT_ID,
-        { metadata: { userId } },
+        {
+          metadata: {
+            ...(userId ? { userId } : {}),
+            ...(accessToken ? { accessToken } : {}),
+          },
+        },
         undefined,
         undefined,
         undefined,
@@ -302,6 +447,8 @@ export function useVapi() {
     sessionAliveRef.current = false
     assistantTokenAccRef.current = ''
     setAssistantTokenLive('')
+    setReferredFiles([])
+    setWorkspaces([])
     setStatus('idle')
   }, [clearConnectTimers])
 
@@ -321,6 +468,8 @@ export function useVapi() {
     assistantLive,
     assistantTokenLive,
     turns,
+    referredFiles,
+    workspaces,
     connectStage,
     connectSlow,
     lastConnectError,
@@ -330,5 +479,8 @@ export function useVapi() {
     pause,
     stop,
     toggle,
+    downloadReferredFile,
+    deleteReferredFile,
+    moveReferredFile,
   }
 }

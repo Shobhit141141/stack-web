@@ -12,6 +12,7 @@ import { log } from "../utils/logger/index.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as workspaceService from "./workspace.service.js";
 import * as storageService from "./storage.service.js";
+import { getChunkVectorStore } from "../vector-store/index.js";
 
 const RECENTS_LIMIT = 15;
 const FILE_NAME_MAX = 255;
@@ -296,6 +297,7 @@ export async function deleteUserFile(params: {
     row.contentId
   );
   if (remaining === 0) {
+    await getChunkVectorStore().deleteChunksForContent(row.contentId);
     // content delete cascades file_chunks via FK
     await fileRepository.deleteContentById(row.contentId);
   }
