@@ -2,6 +2,7 @@ import { Avatar, Box, Button, Flex } from '@radix-ui/themes'
 import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { AppSidebar } from '../components/AppSidebar'
+import { SearchBar } from '../components/SearchBar'
 import { PdfViewerModal } from '../components/PdfViewerModal'
 import { UploadModal } from '../components/UploadModal'
 import { FullScreenLoader } from '../components/ui/full-screen-loader'
@@ -38,39 +39,42 @@ export function RootLayout() {
           <Box className="flex min-h-svh min-w-0 flex-1 flex-col">
             <Flex
               align="center"
-              justify="end"
+              justify="between"
               px="4"
               py="3"
               gap="3"
               className="shrink-0 border-b border-neutral-200 bg-white"
             >
-              {profile ? (
-                <Link
-                  to={routeMap.profile}
-                  className="rounded-full outline-none ring-neutral-900 focus-visible:ring-2"
+              <SearchBar />
+              <Flex align="center" gap="3" className="shrink-0">
+                {profile ? (
+                  <Link
+                    to={routeMap.profile}
+                    className="rounded-full outline-none ring-neutral-900 focus-visible:ring-2"
+                  >
+                    <Avatar
+                      size="2"
+                      radius="full"
+                      fallback={profileInitials(profile)}
+                      src={profile.avatarUrl ?? undefined}
+                      referrerPolicy="no-referrer"
+                      color="gray"
+                      title={profile.displayName ?? profile.email}
+                    />
+                  </Link>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="1"
+                  color="gray"
+                  highContrast
+                  onClick={() => void signOut()}
+                  className="cursor-pointer text-neutral-700"
                 >
-                  <Avatar
-                    size="2"
-                    radius="full"
-                    fallback={profileInitials(profile)}
-                    src={profile.avatarUrl ?? undefined}
-                    referrerPolicy="no-referrer"
-                    color="gray"
-                    title={profile.displayName ?? profile.email}
-                  />
-                </Link>
-              ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                size="1"
-                color="gray"
-                highContrast
-                onClick={() => void signOut()}
-                className="cursor-pointer text-neutral-700"
-              >
-                Sign out
-              </Button>
+                  Sign out
+                </Button>
+              </Flex>
             </Flex>
             <Box className="flex-1 overflow-y-auto px-6 py-8">
               <Outlet />
