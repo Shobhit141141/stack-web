@@ -4,6 +4,7 @@ import VapiModule from '@vapi-ai/web'
 // CJS default export compat — Vite may or may not unwrap it
 const Vapi = ('default' in VapiModule ? (VapiModule as any).default : VapiModule) as typeof VapiModule
 import { getSupabase } from '../lib/supabase'
+import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
 
 const VAPI_PUBLIC_KEY = import.meta.env.VITE_VAPI_PUBLIC_KEY as string | undefined
 const VAPI_ASSISTANT_ID = import.meta.env.VITE_VAPI_ASSISTANT_ID as string | undefined
@@ -27,6 +28,7 @@ export function useVapi() {
       setStatus('active')
       setTranscript('')
       setAssistantMessage('')
+      sendStackFileToolSessionHint(vapi)
     })
 
     vapi.on('call-end', () => {

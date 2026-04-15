@@ -32,6 +32,7 @@ const labelTransition = { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] as const }
 const navItems = [
   { to: routeMap.recents, label: 'Recents', Icon: HiOutlineClock },
   { to: routeMap.files, label: 'Files', Icon: HiOutlineFolder },
+  { to: routeMap.chats, label: 'Chats', Icon: HiOutlineChatBubbleLeftRight },
   { to: routeMap.timeline, label: 'Timeline', Icon: HiOutlineQueueList },
   { to: routeMap.trash, label: 'Trash', Icon: HiOutlineTrash },
 ] as const

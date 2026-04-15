@@ -6,6 +6,7 @@ export const appRouteSegment = {
   files: 'files',
   trash: 'trash',
   workspaces: 'workspaces',
+  chats: 'chats',
 } as const
 
 /** full paths for router, Link, and redirects */
@@ -16,6 +17,7 @@ export const routeMap = {
   recents: `/${appRouteSegment.recents}`,
   timeline: `/${appRouteSegment.timeline}`,
   files: `/${appRouteSegment.files}`,
+  chats: `/${appRouteSegment.chats}`,
   trash: `/${appRouteSegment.trash}`,
   workspace: (workspaceId: string) =>
     `/${appRouteSegment.workspaces}/${workspaceId}`,
