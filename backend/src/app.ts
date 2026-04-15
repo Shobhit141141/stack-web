@@ -5,12 +5,17 @@ import { requestLogger } from "./middleware/request-logger.middleware.js";
 import routes from "./routes/index.routes.js";
 import "./types/express-augment.js";
 
-export function createApp() {
-  const app = express();
-  app.use(corsMiddleware);
-  app.use(requestLogger);
-  app.use(express.json());
-  app.use(routes);
-  app.use(errorHandler);
-  return app;
-}
+const app = express();
+app.use(corsMiddleware);
+app.use(requestLogger);
+app.use(express.json());
+
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.use(routes);
+app.use(errorHandler);
+
+// export the configured express app instance
+export default app;
