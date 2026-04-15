@@ -11,6 +11,7 @@ export function VoiceButton() {
     transcriptLive,
     assistantLive,
     assistantTokenLive,
+    turns,
     connectStage,
     connectSlow,
     lastConnectError,
@@ -47,6 +48,7 @@ export function VoiceButton() {
             userText={userText}
             assistantText={assistantText}
             assistantStreaming={assistantStreaming}
+            turns={turns}
             connectStage={connectStage}
             connectSlow={connectSlow}
             onEnd={stop}

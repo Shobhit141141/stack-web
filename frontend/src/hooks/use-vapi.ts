@@ -17,6 +17,12 @@ const VAPI_ASSISTANT_ID = import.meta.env.VITE_VAPI_ASSISTANT_ID as string | und
 
 export type VapiStatus = 'idle' | 'connecting' | 'active' | 'error'
 
+export type VoiceTurn = {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+}
+
 function extractModelOutputChunk(
   output: unknown,
 ): { mode: 'append' | 'replace'; text: string } | null {
@@ -71,12 +77,14 @@ export function useVapi() {
   const [transcriptLive, setTranscriptLive] = useState('')
   const [assistantLive, setAssistantLive] = useState('')
   const [assistantTokenLive, setAssistantTokenLive] = useState('')
+  const [turns, setTurns] = useState<VoiceTurn[]>([])
   const [connectStage, setConnectStage] = useState('')
   const [connectSlow, setConnectSlow] = useState(false)
   const [lastConnectError, setLastConnectError] = useState<string | null>(null)
 
   const vapiRef = useRef<InstanceType<typeof Vapi> | null>(null)
   const assistantTokenAccRef = useRef('')
+  const sessionAliveRef = useRef(false)
   const connectTimersRef = useRef<{
     slow?: ReturnType<typeof setTimeout>
     hard?: ReturnType<typeof setTimeout>
@@ -112,6 +120,7 @@ export function useVapi() {
       setAssistantLive('')
       assistantTokenAccRef.current = ''
       setAssistantTokenLive('')
+      sessionAliveRef.current = true
       sendStackFileToolSessionHint(vapi)
     })
 
@@ -128,6 +137,7 @@ export function useVapi() {
       setStatus('idle')
       assistantTokenAccRef.current = ''
       setAssistantTokenLive('')
+      sessionAliveRef.current = false
     })
 
     vapi.on('error', () => {
@@ -159,11 +169,15 @@ export function useVapi() {
           setTranscriptLive(typeof msg.transcript === 'string' ? msg.transcript : '')
         }
         if (msg.transcriptType === 'final') {
+          const text = typeof msg.transcript === 'string' ? msg.transcript : ''
           assistantTokenAccRef.current = ''
           setAssistantTokenLive('')
           setTranscriptLive('')
           setAssistantLive('')
-          setTranscript(typeof msg.transcript === 'string' ? msg.transcript : '')
+          setTranscript(text)
+          if (text.trim()) {
+            setTurns((prev) => [...prev, { id: crypto.randomUUID(), role: 'user', text: text.trim() }])
+          }
         }
       }
 
@@ -174,10 +188,14 @@ export function useVapi() {
           setAssistantLive(typeof msg.transcript === 'string' ? msg.transcript : '')
         }
         if (msg.transcriptType === 'final') {
+          const text = typeof msg.transcript === 'string' ? msg.transcript : ''
           assistantTokenAccRef.current = ''
           setAssistantTokenLive('')
           setAssistantLive('')
-          setAssistantMessage(typeof msg.transcript === 'string' ? msg.transcript : '')
+          setAssistantMessage(text)
+          if (text.trim()) {
+            setTurns((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: text.trim() }])
+          }
         }
       }
     })
@@ -195,11 +213,19 @@ export function useVapi() {
     const vapi = vapiRef.current
     if (!vapi || !VAPI_ASSISTANT_ID) return
 
+    // if session is still alive, just resume (unmute + show overlay)
+    if (sessionAliveRef.current) {
+      try { vapi.setMuted(false) } catch { /* ignore */ }
+      setStatus('active')
+      return
+    }
+
     clearConnectTimers()
     setConnectSlow(false)
     setConnectStage('')
     setLastConnectError(null)
     setStatus('connecting')
+    setTurns([])
 
     connectTimersRef.current.slow = setTimeout(
       () => setConnectSlow(true),
@@ -253,11 +279,27 @@ export function useVapi() {
     }
   }, [clearConnectTimers])
 
+  // pause: mute mic + hide overlay but keep the Daily room alive
+  const pause = useCallback(() => {
+    clearConnectTimers()
+    setConnectSlow(false)
+    setConnectStage('')
+    const vapi = vapiRef.current
+    if (vapi && sessionAliveRef.current) {
+      try { vapi.setMuted(true) } catch { /* ignore */ }
+    }
+    assistantTokenAccRef.current = ''
+    setAssistantTokenLive('')
+    setStatus('idle')
+  }, [clearConnectTimers])
+
+  // hard stop: tear down the session completely
   const stop = useCallback(() => {
     clearConnectTimers()
     setConnectSlow(false)
     setConnectStage('')
     vapiRef.current?.stop()
+    sessionAliveRef.current = false
     assistantTokenAccRef.current = ''
     setAssistantTokenLive('')
     setStatus('idle')
@@ -265,11 +307,11 @@ export function useVapi() {
 
   const toggle = useCallback(() => {
     if (status === 'active') {
-      stop()
+      pause()
     } else if (status === 'idle' || status === 'error') {
       void start()
     }
-  }, [status, start, stop])
+  }, [status, start, pause])
 
   return {
     status,
@@ -278,12 +320,14 @@ export function useVapi() {
     transcriptLive,
     assistantLive,
     assistantTokenLive,
+    turns,
     connectStage,
     connectSlow,
     lastConnectError,
     clearLastConnectError,
     configured,
     start,
+    pause,
     stop,
     toggle,
   }

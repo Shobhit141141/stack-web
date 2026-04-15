@@ -1,12 +1,14 @@
+import { useEffect, useRef } from 'react'
 import { motion } from 'motion/react'
 import { HiOutlineMicrophone, HiOutlineXMark } from 'react-icons/hi2'
-import type { VapiStatus } from '../../hooks/use-vapi'
+import type { VapiStatus, VoiceTurn } from '../../hooks/use-vapi'
 
 type Props = {
   status: VapiStatus
   userText: string
   assistantText: string
   assistantStreaming: boolean
+  turns: VoiceTurn[]
   connectStage: string
   connectSlow: boolean
   onEnd: () => void
@@ -18,12 +20,19 @@ export function VoiceSessionOverlay({
   userText,
   assistantText,
   assistantStreaming,
+  turns,
   connectStage,
   connectSlow,
   onEnd,
 }: Props) {
   const isConnecting = status === 'connecting'
-  const hasDialogue = Boolean(userText.trim() || assistantText.trim())
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // auto-scroll when new turns arrive or live text updates
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [turns, userText, assistantText])
 
   return (
     <motion.div
@@ -120,42 +129,56 @@ export function VoiceSessionOverlay({
             </div>
           ) : null}
 
-          <div className="mt-1 space-y-5">
-            {(hasDialogue || !isConnecting) && (
-              <div className="space-y-5">
-                {userText.trim() ? (
-                  <div>
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/90">
-                      You
-                    </p>
-                    <p className="text-[15px] leading-relaxed text-white/95 md:text-base">
-                      {userText}
-                    </p>
-                  </div>
-                ) : !isConnecting ? (
-                  <p className="text-center text-sm text-white/55">
-                    Speak or wait for the assistant…
-                  </p>
-                ) : null}
-
-                {assistantText.trim() ? (
-                  <div className="border-t border-white/10 pt-4">
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-violet-200/90">
-                      Stack
-                    </p>
-                    <p className="text-[15px] leading-relaxed text-white/95 md:text-[1.05rem]">
-                      {assistantText}
-                      {assistantStreaming ? (
-                        <span
-                          className="ml-0.5 inline-block h-[1cap] w-px animate-pulse bg-violet-300 align-middle"
-                          aria-hidden
-                        />
-                      ) : null}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
+          {/* Scrollable conversation history */}
+          <div ref={scrollRef} className="mt-2 max-h-[40vh] space-y-3 overflow-y-auto pr-1">
+            {turns.length === 0 && !isConnecting && !userText.trim() && !assistantText.trim() && (
+              <p className="text-center text-sm text-white/55">
+                Speak or wait for the assistant…
+              </p>
             )}
+
+            {turns.map((turn) => (
+              <div key={turn.id}>
+                <p className={`mb-1 text-[10px] font-bold uppercase tracking-[0.2em] ${
+                  turn.role === 'user' ? 'text-amber-200/90' : 'text-violet-200/90'
+                }`}>
+                  {turn.role === 'user' ? 'You' : 'Stack'}
+                </p>
+                <p className="text-[15px] leading-relaxed text-white/90">
+                  {turn.text}
+                </p>
+              </div>
+            ))}
+
+            {/* Live partial — current user speech */}
+            {userText.trim() && !turns.some((t) => t.text === userText.trim()) ? (
+              <div>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/90">
+                  You
+                </p>
+                <p className="text-[15px] leading-relaxed text-white/95">
+                  {userText}
+                </p>
+              </div>
+            ) : null}
+
+            {/* Assistant thinking/speaking indicator — dots while streaming, no partial text */}
+            {assistantStreaming ? (
+              <div>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-violet-200/90">
+                  Stack
+                </p>
+                <span className="inline-flex items-center gap-1.5 py-1">
+                  {[0, 150, 300].map((d) => (
+                    <span
+                      key={d}
+                      className="h-2 w-2 rounded-full bg-violet-300 motion-safe:animate-bounce"
+                      style={{ animationDelay: `${d}ms` }}
+                    />
+                  ))}
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
 
