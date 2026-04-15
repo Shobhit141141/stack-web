@@ -1,8 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react'
 import { Box, Flex, Text } from '@radix-ui/themes'
-import toast from 'react-hot-toast'
 import { useAuth } from '../auth/useAuth'
-import { importFileFromUrl } from '../services/url-ingest-service'
 import type { MeProfile } from '../types/auth'
 
 function profileHeadline(p: MeProfile): string {
@@ -18,64 +15,8 @@ function profileSubline(p: MeProfile, headline: string): string | null {
   return null
 }
 
-/** skips inputs and app regions that should keep normal paste behavior */
-function shouldIgnorePasteForLinkImport(target: EventTarget | null): boolean {
-  if (!target || !(target instanceof Element)) return false
-  if (target.closest('[data-no-link-import]')) return true
-  const el = target as HTMLElement
-  const tag = el.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  if (el.isContentEditable) return true
-  return false
-}
-
-/** returns normalized http(s) URL or null */
-function normalizePastedUrl(raw: string): string | null {
-  const t = raw.trim().replace(/\s+/g, '')
-  if (t.length < 12 || t.length > 2048) return null
-  try {
-    const u = new URL(t)
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
-    return u.href
-  } catch {
-    return null
-  }
-}
-
 export function HomePage() {
   const { profile, error } = useAuth()
-  const importingRef = useRef(false)
-
-  const onPaste = useCallback((e: ClipboardEvent) => {
-    if (importingRef.current) return
-    if (shouldIgnorePasteForLinkImport(e.target)) return
-
-    const text = e.clipboardData?.getData('text/plain')
-    if (!text) return
-
-    const url = normalizePastedUrl(text)
-    if (!url) return
-
-    e.preventDefault()
-    e.stopPropagation()
-
-    importingRef.current = true
-    const promise = importFileFromUrl(url)
-    toast.promise(promise, {
-      loading: 'Importing from link…',
-      success: (r) => `Saved “${r.fileName}”`,
-      error: (err) =>
-        err instanceof Error ? err.message : 'Could not import from this link',
-    })
-    void promise.finally(() => {
-      importingRef.current = false
-    })
-  }, [])
-
-  useEffect(() => {
-    document.addEventListener('paste', onPaste, true)
-    return () => document.removeEventListener('paste', onPaste, true)
-  }, [onPaste])
 
   if (!profile) {
     if (error) {
@@ -120,8 +61,9 @@ export function HomePage() {
       >
         Paste an{' '}
         <span className="font-medium text-neutral-700">https://</span> link
-        anywhere on this page (outside search) to fetch and save it as a file — progress
-        shows in the corner.
+        almost anywhere in the app to import it as a file (progress in the corner).
+        Choose a workspace on the Files page or in the upload panel so imports land
+        in the right place.
       </Text>
 
       {error ? (

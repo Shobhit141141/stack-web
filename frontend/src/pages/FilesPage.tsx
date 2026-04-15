@@ -11,6 +11,7 @@ import {
   fetchWorkspaces,
   type WorkspaceItem,
 } from '../services/workspace-service'
+import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
 import { useUploadStore } from '../store/upload-store'
 import { usePdfViewerStore } from '../store/pdf-viewer-store'
 import { Skeleton } from '../components/ui/skeleton'
@@ -54,6 +55,9 @@ function useOpenFile() {
 
 export function FilesPage() {
   const openUpload = useUploadStore((s) => s.open)
+  const setLinkImportWorkspaceId = useLinkImportWorkspaceStore(
+    (s) => s.setLinkImportWorkspaceId,
+  )
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [filter, setFilter] = useState<FileFilter>({ kind: 'all' })
   const [files, setFiles] = useState<FileItem[]>([])
@@ -78,6 +82,14 @@ export function FilesPage() {
   useEffect(() => {
     void loadWorkspaces()
   }, [loadWorkspaces])
+
+  useEffect(() => {
+    if (filter.kind === 'workspace') {
+      setLinkImportWorkspaceId(filter.id)
+    } else {
+      setLinkImportWorkspaceId(null)
+    }
+  }, [filter, setLinkImportWorkspaceId])
 
   useEffect(() => {
     let cancelled = false

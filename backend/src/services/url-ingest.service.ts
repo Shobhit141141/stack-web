@@ -18,6 +18,7 @@ import { log } from "../utils/logger/index.js";
 import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
 import { scheduleExtractionAfterUpload } from "./extraction.service.js";
 import * as storageService from "./storage.service.js";
+import * as workspaceService from "./workspace.service.js";
 import { extractReadableTextFromHtml } from "../utils/url-ingest/html-readability.util.js";
 import { assertUrlSafeForFetch } from "../utils/url-ingest/url-ssrf.util.js";
 
@@ -209,10 +210,15 @@ export type UrlIngestJobSuccess = { fileId: string; fileName: string };
 // Ex input: payload { userId: 'uuid', accessToken: 'jwt', sourceUrl: 'https://example.com/doc.pdf' }, meta { jobId: '42' }
 // Ex output: resolves with file ids for BullMQ returnvalue; throws UnrecoverableError for client errors; throws Error for retryable failures (e.g. 502, storage after upload attempt).
 export async function processUrlIngestJob(
-  payload: { userId: string; accessToken: string; sourceUrl: string },
+  payload: {
+    userId: string;
+    accessToken: string;
+    sourceUrl: string;
+    workspaceId?: string;
+  },
   meta: { jobId: string }
 ): Promise<UrlIngestJobSuccess> {
-  const { userId, accessToken, sourceUrl } = payload;
+  const { userId, accessToken, sourceUrl, workspaceId } = payload;
   const jobId = meta.jobId;
 
   log.info(
@@ -227,6 +233,10 @@ export async function processUrlIngestJob(
   let finalUrl = "";
 
   try {
+    if (workspaceId) {
+      await workspaceService.assertWorkspaceOwned(userId, workspaceId);
+    }
+
     const signal = AbortSignal.timeout(env.URL_FETCH_TIMEOUT_MS);
     const tFetch0 = Date.now();
     let current = sourceUrl.trim();
@@ -389,6 +399,7 @@ export async function processUrlIngestJob(
         storagePath,
         sourceType: "url",
         sourceUrl,
+        ...(workspaceId ? { workspaceId } : {}),
       });
     } catch (e) {
       await storageService

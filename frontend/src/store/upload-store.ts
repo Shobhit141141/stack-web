@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useLinkImportWorkspaceStore } from './link-import-workspace-store'
 
 export type UploadOpenOptions = {
   /** workspace to assign uploads to; null = not in a workspace */
@@ -15,10 +16,13 @@ type UploadState = {
 export const useUploadStore = create<UploadState>((set) => ({
   isOpen: false,
   defaultWorkspaceId: null,
-  open: (opts) =>
+  open: (opts) => {
+    const wid = opts?.defaultWorkspaceId ?? null
+    useLinkImportWorkspaceStore.getState().setLinkImportWorkspaceId(wid)
     set({
       isOpen: true,
-      defaultWorkspaceId: opts?.defaultWorkspaceId ?? null,
-    }),
+      defaultWorkspaceId: wid,
+    })
+  },
   close: () => set({ isOpen: false }),
 }))

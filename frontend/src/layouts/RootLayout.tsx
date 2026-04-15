@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast'
 import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { AppSidebar } from '../components/AppSidebar'
+import { GlobalLinkPaste } from '../components/GlobalLinkPaste'
 import { SearchBar } from '../components/SearchBar'
 import { PdfViewerModal } from '../components/PdfViewerModal'
 import { UploadModal } from '../components/UploadModal'
@@ -47,10 +48,10 @@ export function RootLayout() {
       {showFullLoader ? <FullScreenLoader /> : null}
       {showFullLoader ? null : showAppChrome ? (
         <Flex className="min-h-svh w-full">
+          <GlobalLinkPaste />
           <AppSidebar />
           <Box className="flex min-h-svh min-w-0 flex-1 flex-col">
             <Flex
-              data-no-link-import
               align="center"
               justify="between"
               px="4"

@@ -208,11 +208,22 @@ export async function createFileFromUrl(
     return;
   }
 
+  let workspaceId: string | undefined;
+  const rawWs = req.body?.workspaceId;
+  if (rawWs !== undefined && rawWs !== null && rawWs !== "") {
+    if (typeof rawWs !== "string" || !isUuid(rawWs)) {
+      res.status(400).json({ error: "workspaceId must be a uuid string when provided" });
+      return;
+    }
+    workspaceId = rawWs;
+  }
+
   try {
     const { id } = await enqueueUrlIngest({
       userId,
       accessToken: token,
       sourceUrl: url,
+      ...(workspaceId !== undefined ? { workspaceId } : {}),
     });
     log.info(
       `202 POST ${req.originalUrl} — url ingest queued jobId=${id} userId=${userId}`

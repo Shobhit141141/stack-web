@@ -10,6 +10,8 @@ export type UrlIngestJobPayload = {
   userId: string;
   accessToken: string;
   sourceUrl: string;
+  /** when set, created file row is assigned to this workspace */
+  workspaceId?: string;
 };
 
 let queue: Queue<UrlIngestJobPayload, UrlIngestJobSuccess> | null = null;

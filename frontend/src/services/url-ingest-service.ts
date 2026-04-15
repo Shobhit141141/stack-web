@@ -13,10 +13,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 /** queues server-side URL ingest; throws with a readable message on 4xx/5xx/503 */
-export async function queueIngestFromUrl(url: string): Promise<{ jobId: string }> {
+export async function queueIngestFromUrl(
+  url: string,
+  workspaceId?: string,
+): Promise<{ jobId: string }> {
   const res = await apiFetchAuthed('/files/from-url', {
     method: 'POST',
-    json: { url },
+    json: {
+      url,
+      ...(workspaceId ? { workspaceId } : {}),
+    },
   })
   const text = await res.text()
   if (res.status === 503) {
@@ -104,8 +110,9 @@ export async function pollUrlIngestUntilDone(
 export async function importFileFromUrl(
   url: string,
   onProgress?: (status: UrlIngestJobStatus) => void,
+  workspaceId?: string,
 ): Promise<{ fileId: string; fileName: string }> {
-  const { jobId } = await queueIngestFromUrl(url)
+  const { jobId } = await queueIngestFromUrl(url, workspaceId)
   const final = await pollUrlIngestUntilDone(jobId, onProgress)
 
   if (final.state === 'failed') {

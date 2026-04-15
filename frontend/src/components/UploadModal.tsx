@@ -5,9 +5,11 @@ import Uppy from '@uppy/core'
 import Dashboard from '@uppy/dashboard'
 import XHRUpload from '@uppy/xhr-upload'
 import { useUploadStore } from '../store/upload-store'
+import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
 import { getSupabase } from '../lib/supabase'
 import { createWorkspace, fetchWorkspaces } from '../services/workspace-service'
 import type { WorkspaceItem } from '../services/workspace-service'
+import { importFileFromUrl } from '../services/url-ingest-service'
 
 import '@uppy/core/css/style.min.css'
 import '@uppy/dashboard/css/style.min.css'
@@ -25,6 +27,9 @@ function buildFilesEndpoint(workspaceId: string | null): string {
 
 export function UploadModal() {
   const { isOpen, close } = useUploadStore()
+  const setLinkImportWorkspaceId = useLinkImportWorkspaceStore(
+    (s) => s.setLinkImportWorkspaceId,
+  )
   const uppyMountRef = useRef<HTMLDivElement>(null)
   const uppyRef = useRef<Uppy | null>(null)
   const closeRef = useRef(close)
@@ -35,6 +40,8 @@ export function UploadModal() {
   const [createName, setCreateName] = useState('')
   const [creating, setCreating] = useState(false)
   const [createBusy, setCreateBusy] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [urlBusy, setUrlBusy] = useState(false)
 
   const applyXhrOptions = useCallback(async (workspaceId: string | null) => {
     const uppy = uppyRef.current
@@ -96,7 +103,7 @@ export function UploadModal() {
         inline: false,
         target: mount,
         proudlyDisplayPoweredByUppy: false,
-        note: 'Choose a workspace above, then add PDF or DOCX files (up to 10 MB each).',
+        note: 'Pick a workspace above. Add files here or paste a link in the field above.',
         theme: 'light',
         closeModalOnClickOutside: true,
         onRequestCloseModal: () => {
@@ -146,17 +153,20 @@ export function UploadModal() {
     if (isOpen) {
       const initial = useUploadStore.getState().defaultWorkspaceId
       setSelectedWorkspaceId(initial)
+      setLinkUrl('')
       void applyXhrOptions(initial).then(() => {
         dashboard.openModal()
       })
     } else {
       setSelectedWorkspaceId(null)
+      setLinkUrl('')
       dashboard.closeModal()
     }
   }, [isOpen, applyXhrOptions])
 
   async function handleWorkspaceChange(next: string | null) {
     setSelectedWorkspaceId(next)
+    setLinkImportWorkspaceId(next)
     await applyXhrOptions(next)
   }
 
@@ -182,74 +192,136 @@ export function UploadModal() {
     }
   }
 
+  async function handleImportFromUrl(e: React.FormEvent) {
+    e.preventDefault()
+    const url = linkUrl.trim()
+    if (!url) {
+      toast.error('Enter a URL')
+      return
+    }
+    try {
+      const u = new URL(url)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+        toast.error('URL must start with http:// or https://')
+        return
+      }
+    } catch {
+      toast.error('Invalid URL')
+      return
+    }
+
+    setUrlBusy(true)
+    const ws = selectedWorkspaceId ?? undefined
+    const promise = importFileFromUrl(url, undefined, ws)
+    toast.promise(promise, {
+      loading: 'Importing from link…',
+      success: (r) => {
+        setLinkUrl('')
+        closeRef.current()
+        return `Saved “${r.fileName}”`
+      },
+      error: (err) =>
+        err instanceof Error ? err.message : 'Could not import from this link',
+    })
+    try {
+      await promise
+    } finally {
+      setUrlBusy(false)
+    }
+  }
+
   return createPortal(
     <>
       {isOpen ? (
         <div
           data-no-link-import
-          className="pointer-events-auto fixed top-4 left-1/2 z-[2147483000] w-[min(100vw-2rem,24rem)] -translate-x-1/2 rounded-xl border border-neutral-200 bg-white p-3 shadow-lg"
+          className="pointer-events-auto fixed top-4 left-1/2 z-[2147483000] w-[min(100vw-2rem,26rem)] -translate-x-1/2 rounded-xl border border-neutral-200 bg-white p-3 shadow-lg"
           role="region"
-          aria-label="Upload workspace"
+          aria-label="Upload and link import"
         >
-          <div className="flex flex-col gap-2">
-            <label htmlFor="upload-workspace" className="text-xs font-medium text-neutral-600">
-              Workspace for this upload
-            </label>
-            <select
-              id="upload-workspace"
-              className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-400"
-              value={selectedWorkspaceId ?? ''}
-              onChange={(e) => {
-                const v = e.target.value
-                void handleWorkspaceChange(v === '' ? null : v)
-              }}
-            >
-              <option value="">No workspace</option>
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-            {!creating ? (
-              <button
-                type="button"
-                onClick={() => setCreating(true)}
-                className="text-left text-xs font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900"
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
+              <label htmlFor="upload-workspace" className="text-xs font-medium text-neutral-600">
+                Workspace
+              </label>
+              <select
+                id="upload-workspace"
+                className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-400"
+                value={selectedWorkspaceId ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  void handleWorkspaceChange(v === '' ? null : v)
+                }}
               >
-                + Create workspace
-              </button>
-            ) : (
-              <form onSubmit={handleCreateWorkspace} className="flex flex-col gap-2">
+                <option value="">No workspace</option>
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+              {!creating ? (
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="text-left text-xs font-medium text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900"
+                >
+                  + Create workspace
+                </button>
+              ) : (
+                <form onSubmit={handleCreateWorkspace} className="flex flex-col gap-2">
+                  <input
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    placeholder="Workspace name"
+                    className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-neutral-400"
+                    maxLength={200}
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={createBusy}
+                      className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    >
+                      {createBusy ? 'Creating…' : 'Create'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreating(false)
+                        setCreateName('')
+                      }}
+                      className="rounded-lg border border-neutral-200 px-3 py-1.5 text-xs text-neutral-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            <div className="border-t border-neutral-100 pt-2">
+              <p className="mb-2 text-xs font-medium text-neutral-600">Import from URL</p>
+              <form onSubmit={handleImportFromUrl} className="flex flex-col gap-2">
                 <input
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="Workspace name"
+                  type="url"
+                  inputMode="url"
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  placeholder="https://…"
                   className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-neutral-400"
-                  maxLength={200}
-                  autoFocus
+                  autoComplete="off"
                 />
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={createBusy}
-                    className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                  >
-                    {createBusy ? 'Creating…' : 'Create'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCreating(false)
-                      setCreateName('')
-                    }}
-                    className="rounded-lg border border-neutral-200 px-3 py-1.5 text-xs text-neutral-700"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={urlBusy}
+                  className="w-full rounded-lg bg-neutral-900 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {urlBusy ? 'Importing…' : 'Import link'}
+                </button>
               </form>
-            )}
+            </div>
           </div>
         </div>
       ) : null}
