@@ -3,9 +3,10 @@ import { Link, useParams } from 'react-router-dom'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { FileBrowserView } from '../components/files/file-browser-view'
+import { FileRenameDeleteModals } from '../components/files/file-rename-delete-modals'
 import { ViewModeToggle } from '../components/files/view-mode-toggle'
 import { WorkspaceChatPanel } from '../components/workspace/workspace-chat-panel'
-import { fetchFileList } from '../services/file-service'
+import { deleteFile, fetchFileList, renameFile } from '../services/file-service'
 import { fetchWorkspaces, type WorkspaceItem } from '../services/workspace-service'
 import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
@@ -35,6 +36,8 @@ export function WorkspacePage() {
   const [files, setFiles] = useState<FileItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<FileItem | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
 
   const load = useCallback(async () => {
     if (!isUuid(workspaceId)) {
@@ -111,6 +114,18 @@ export function WorkspacePage() {
 
   const name = workspace?.name ?? 'Workspace'
 
+  async function handleRenameConfirm(file: FileItem, newName: string) {
+    await renameFile(file.id, newName)
+    toast.success('File renamed')
+    await load()
+  }
+
+  async function handleDeleteConfirm(file: FileItem) {
+    await deleteFile(file.id)
+    toast.success('File deleted')
+    await load()
+  }
+
   return (
     <div
       data-no-link-import
@@ -164,10 +179,21 @@ export function WorkspacePage() {
               view={view}
               dateStyle="relative"
               onOpenFile={(f) => void openFile(f)}
+              onRenameFile={(f) => setRenameTarget(f)}
+              onDeleteFile={(f) => setDeleteTarget(f)}
             />
           </div>
         </aside>
       </div>
+
+      <FileRenameDeleteModals
+        renameTarget={renameTarget}
+        deleteTarget={deleteTarget}
+        onCloseRename={() => setRenameTarget(null)}
+        onCloseDelete={() => setDeleteTarget(null)}
+        onRenameConfirm={handleRenameConfirm}
+        onDeleteConfirm={handleDeleteConfirm}
+      />
     </div>
   )
 }

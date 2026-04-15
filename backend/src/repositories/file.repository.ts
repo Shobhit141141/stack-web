@@ -78,6 +78,7 @@ export async function findFileByIdForUser(id: string, userId: string) {
     where: { id, userId },
     select: {
       id: true,
+      contentId: true,
       originalName: true,
       mimeType: true,
       size: true,
@@ -203,4 +204,41 @@ export async function updateFileWorkspaceForUser(
     data: { workspaceId },
   });
   return r.count > 0;
+}
+
+export async function updateFileNameForUser(
+  fileId: string,
+  userId: string,
+  originalName: string
+): Promise<boolean> {
+  const r = await prisma.file.updateMany({
+    where: { id: fileId, userId },
+    data: { originalName },
+  });
+  return r.count > 0;
+}
+
+export async function deleteFileByIdForUser(
+  fileId: string,
+  userId: string
+): Promise<boolean> {
+  const r = await prisma.file.deleteMany({
+    where: { id: fileId, userId },
+  });
+  return r.count > 0;
+}
+
+export async function countFilesByContentId(
+  contentId: string
+): Promise<number> {
+  return prisma.file.count({
+    where: { contentId },
+  });
+}
+
+export async function deleteContentById(contentId: string): Promise<void> {
+  await prisma.content.delete({
+    where: { id: contentId },
+    select: { id: true },
+  });
 }

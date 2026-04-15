@@ -16,6 +16,7 @@ router.get("/search", requireAuth, fileController.searchFiles);
 router.get("/recents", requireAuth, fileController.listRecentFiles);
 router.get("/", requireAuth, fileController.listFiles);
 router.patch("/:id", requireAuth, fileController.patchFile);
+router.delete("/:id", requireAuth, fileController.deleteFile);
 router.get("/:id", requireAuth, fileController.getFileById);
 
 export default router;

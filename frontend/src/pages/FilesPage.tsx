@@ -4,10 +4,13 @@ import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { HiOutlineArrowUpTray, HiOutlineFolderPlus } from 'react-icons/hi2'
 import { FileBrowserView } from '../components/files/file-browser-view'
+import { FileRenameDeleteModals } from '../components/files/file-rename-delete-modals'
 import { ViewModeToggle } from '../components/files/view-mode-toggle'
 import { WorkspaceFolderBrowser } from '../components/workspaces/workspace-folder-browser'
 import {
   fetchFileList,
+  renameFile,
+  deleteFile,
 } from '../services/file-service'
 import {
   createWorkspace,
@@ -47,6 +50,8 @@ export function FilesPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [newWorkspaceName, setNewWorkspaceName] = useState('')
   const [createBusy, setCreateBusy] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<FileItem | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
 
   const openFile = useOpenFile()
 
@@ -70,8 +75,7 @@ export function FilesPage() {
     setLinkImportWorkspaceId(null)
   }, [setLinkImportWorkspaceId])
 
-  useEffect(() => {
-    let cancelled = false
+  const loadFiles = useCallback(async () => {
     setLoading(true)
     setError(null)
     const params: Parameters<typeof fetchFileList>[0] = {
@@ -82,25 +86,32 @@ export function FilesPage() {
     if (filter.kind === 'unassigned') {
       params.unassignedOnly = true
     }
-    fetchFileList(params)
-      .then((res) => {
-        if (!cancelled) {
-          setFiles(res.files)
-          setTotal(res.pagination.total)
-        }
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to load files')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
+    try {
+      const res = await fetchFileList(params)
+      setFiles(res.files)
+      setTotal(res.pagination.total)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load files')
+    } finally {
+      setLoading(false)
     }
   }, [filter])
+
+  useEffect(() => {
+    void loadFiles()
+  }, [loadFiles])
+
+  async function handleRenameConfirm(file: FileItem, newName: string) {
+    await renameFile(file.id, newName)
+    toast.success('File renamed')
+    await loadFiles()
+  }
+
+  async function handleDeleteConfirm(file: FileItem) {
+    await deleteFile(file.id)
+    toast.success('File deleted')
+    await loadFiles()
+  }
 
   async function handleCreateWorkspace(e: React.FormEvent) {
     e.preventDefault()
@@ -215,6 +226,8 @@ export function FilesPage() {
           view={fileView}
           dateStyle="relative"
           onOpenFile={(f) => void openFile(f)}
+          onRenameFile={(f) => setRenameTarget(f)}
+          onDeleteFile={(f) => setDeleteTarget(f)}
         />
 
         {!loading && !error && total > files.length ? (
@@ -223,6 +236,15 @@ export function FilesPage() {
           </Text>
         ) : null}
       </section>
+
+      <FileRenameDeleteModals
+        renameTarget={renameTarget}
+        deleteTarget={deleteTarget}
+        onCloseRename={() => setRenameTarget(null)}
+        onCloseDelete={() => setDeleteTarget(null)}
+        onRenameConfirm={handleRenameConfirm}
+        onDeleteConfirm={handleDeleteConfirm}
+      />
 
       {createOpen ? (
         <div

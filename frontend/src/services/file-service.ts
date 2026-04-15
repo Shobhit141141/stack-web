@@ -36,3 +36,20 @@ export async function fetchFileSignedUrl(fileId: string): Promise<string> {
   const body = (await res.json()) as { signedUrl: string }
   return body.signedUrl
 }
+
+export async function renameFile(
+  fileId: string,
+  name: string,
+): Promise<FileItem> {
+  const res = await apiFetchOkAuthed(`/files/${fileId}`, {
+    method: 'PATCH',
+    json: { name },
+  })
+  return (await res.json()) as FileItem
+}
+
+export async function deleteFile(fileId: string): Promise<void> {
+  await apiFetchOkAuthed(`/files/${fileId}`, {
+    method: 'DELETE',
+  })
+}

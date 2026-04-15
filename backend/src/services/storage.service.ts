@@ -32,9 +32,10 @@ export async function deleteFromFilesBucket(
   storagePath: string
 ): Promise<void> {
   const supabase = getSupabaseClientForAccessToken(accessToken);
-  await supabase.storage
+  const { error } = await supabase.storage
     .from(env.SUPABASE_STORAGE_BUCKET)
     .remove([storagePath]);
+  if (error) throw new Error(error.message);
 }
 
 const MIN_SIGNED_TTL = 60;

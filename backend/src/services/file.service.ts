@@ -14,6 +14,16 @@ import * as workspaceService from "./workspace.service.js";
 import * as storageService from "./storage.service.js";
 
 const RECENTS_LIMIT = 15;
+const FILE_NAME_MAX = 255;
+
+function normalizeFileName(raw: string): string {
+  const name = raw.replace(/^.*[/\\]/, "").trim();
+  if (!name) throw new HttpError(400, "name must not be empty");
+  if (name.length > FILE_NAME_MAX) {
+    throw new HttpError(400, `name must be at most ${FILE_NAME_MAX} characters`);
+  }
+  return name;
+}
 
 function logStorageUploadFailure(
   e: unknown,
@@ -221,6 +231,74 @@ export async function assignUserFileWorkspace(params: {
     workspaceId: updated.workspaceId ?? null,
     createdAt: updated.createdAt.toISOString(),
   };
+}
+
+export async function renameUserFile(params: {
+  userId: string;
+  fileId: string;
+  name: string;
+}): Promise<{
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  workspaceId: string | null;
+  createdAt: string;
+}> {
+  const row = await fileRepository.findFileByIdForUser(params.fileId, params.userId);
+  if (!row) {
+    throw new HttpError(404, "File not found");
+  }
+  const nextName = normalizeFileName(params.name);
+  const ok = await fileRepository.updateFileNameForUser(
+    params.fileId,
+    params.userId,
+    nextName
+  );
+  if (!ok) throw new HttpError(404, "File not found");
+  const updated = await fileRepository.findFileByIdForUser(params.fileId, params.userId);
+  if (!updated) throw new HttpError(404, "File not found");
+  return {
+    id: updated.id,
+    name: updated.originalName,
+    type: publicFileTypeLabel(updated.originalName, updated.mimeType),
+    size: sizeToSafeNumber(updated.size),
+    workspaceId: updated.workspaceId ?? null,
+    createdAt: updated.createdAt.toISOString(),
+  };
+}
+
+export async function deleteUserFile(params: {
+  accessToken: string;
+  userId: string;
+  fileId: string;
+}): Promise<void> {
+  const row = await fileRepository.findFileByIdForUser(params.fileId, params.userId);
+  if (!row) throw new HttpError(404, "File not found");
+
+  // delete storage first so failed storage removal never leaves db partially cleaned
+  try {
+    await storageService.deleteFromFilesBucket(params.accessToken, row.storagePath);
+  } catch (e) {
+    logStorageUploadFailure(e, {
+      storagePath: row.storagePath,
+      userId: params.userId,
+      mimeType: row.mimeType,
+      sizeBytes: sizeToSafeNumber(row.size),
+    });
+    throw new HttpError(502, "Could not delete file from storage");
+  }
+
+  const ok = await fileRepository.deleteFileByIdForUser(params.fileId, params.userId);
+  if (!ok) throw new HttpError(404, "File not found");
+
+  const remaining = await fileRepository.countFilesByContentId(
+    row.contentId
+  );
+  if (remaining === 0) {
+    // content delete cascades file_chunks via FK
+    await fileRepository.deleteContentById(row.contentId);
+  }
 }
 
 export async function getUserFileWithSignedUrl(params: {

@@ -89,32 +89,90 @@ export async function patchFile(
     res.status(400).json({ error: "Invalid file id" });
     return;
   }
-  const body = req.body as { workspaceId?: unknown };
-  if (!("workspaceId" in body)) {
+  const body = req.body as { workspaceId?: unknown; name?: unknown };
+  const hasWorkspace = "workspaceId" in body;
+  const hasName = "name" in body;
+  if (!hasWorkspace && !hasName) {
     res.status(400).json({
-      error: "workspaceId is required (uuid string or null to unassign)",
+      error: "Provide at least one field: workspaceId (uuid|null) and/or name (string)",
     });
     return;
   }
-  const wid = body.workspaceId;
-  let workspaceId: string | null;
-  if (wid === null) {
-    workspaceId = null;
-  } else if (typeof wid === "string" && isUuid(wid)) {
-    workspaceId = wid;
-  } else {
-    res.status(400).json({
-      error: "workspaceId must be a uuid string or null",
-    });
+
+  let workspaceId: string | null | undefined;
+  if (hasWorkspace) {
+    const wid = body.workspaceId;
+    if (wid === null) {
+      workspaceId = null;
+    } else if (typeof wid === "string" && isUuid(wid)) {
+      workspaceId = wid;
+    } else {
+      res.status(400).json({
+        error: "workspaceId must be a uuid string or null",
+      });
+      return;
+    }
+  }
+
+  let name: string | undefined;
+  if (hasName) {
+    if (typeof body.name !== "string") {
+      res.status(400).json({ error: "name must be a string" });
+      return;
+    }
+    name = body.name;
+  }
+
+  try {
+    let row:
+      | Awaited<ReturnType<typeof fileService.assignUserFileWorkspace>>
+      | Awaited<ReturnType<typeof fileService.renameUserFile>>
+      | undefined;
+
+    if (workspaceId !== undefined) {
+      row = await fileService.assignUserFileWorkspace({
+        userId,
+        fileId: id,
+        workspaceId,
+      });
+    }
+    if (name !== undefined) {
+      row = await fileService.renameUserFile({
+        userId,
+        fileId: id,
+        name,
+      });
+    }
+    res.json(row);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function deleteFile(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  const token = req.accessToken;
+  if (!userId || !token) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const rawId = req.params.id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  if (!id || !isUuid(id)) {
+    res.status(400).json({ error: "Invalid file id" });
     return;
   }
   try {
-    const row = await fileService.assignUserFileWorkspace({
+    await fileService.deleteUserFile({
+      accessToken: token,
       userId,
       fileId: id,
-      workspaceId,
     });
-    res.json(row);
+    res.status(204).send();
   } catch (e) {
     next(e);
   }
