@@ -5,6 +5,7 @@ import {
   type FileShortType,
 } from "../constants/upload-file-types.js";
 import { HttpError } from "./http-error.js";
+import { isUuid } from "./uuid.js";
 
 export const FILE_LIST_SORT_VALUES = [
   "createdAt_desc",
@@ -34,6 +35,10 @@ export type ParsedFileListQuery = {
   to?: Date;
   minSize?: bigint;
   maxSize?: bigint;
+  /** when set, only files linked to this workspace */
+  workspaceId?: string;
+  /** when true, only files not in any workspace (mutually exclusive with workspaceId) */
+  unassignedOnly?: boolean;
 };
 
 function parsePositiveInt(raw: unknown, fallback: number, max: number): number {
@@ -120,6 +125,28 @@ export function parseFileListQuery(qs: Record<string, unknown>): ParsedFileListQ
     throw new HttpError(400, "minSize must be less than or equal to maxSize");
   }
 
+  let workspaceId: string | undefined;
+  if (
+    qs.workspaceId !== undefined &&
+    qs.workspaceId !== null &&
+    String(qs.workspaceId).trim() !== ""
+  ) {
+    const w = String(qs.workspaceId).trim();
+    if (!isUuid(w)) throw new HttpError(400, "Invalid workspaceId");
+    workspaceId = w;
+  }
+
+  const unassignedRaw = qs.unassigned;
+  const unassignedOnly =
+    unassignedRaw === true ||
+    unassignedRaw === 1 ||
+    String(unassignedRaw).toLowerCase() === "true" ||
+    String(unassignedRaw) === "1";
+
+  if (unassignedOnly && workspaceId) {
+    throw new HttpError(400, "Use either workspaceId or unassigned, not both");
+  }
+
   return {
     page,
     limit,
@@ -130,6 +157,8 @@ export function parseFileListQuery(qs: Record<string, unknown>): ParsedFileListQ
     to,
     minSize,
     maxSize,
+    workspaceId,
+    unassignedOnly: unassignedOnly || undefined,
   };
 }
 
@@ -161,6 +190,12 @@ export function buildFileWhere(
     if (parsed.minSize !== undefined) sr.gte = parsed.minSize;
     if (parsed.maxSize !== undefined) sr.lte = parsed.maxSize;
     and.push({ size: { gte: Number(sr.gte), lte: Number(sr.lte) } });
+  }
+
+  if (parsed.unassignedOnly) {
+    and.push({ workspaceId: null });
+  } else if (parsed.workspaceId) {
+    and.push({ workspaceId: parsed.workspaceId });
   }
 
   return and.length === 1 ? and[0]! : { AND: and };

@@ -7,6 +7,7 @@ import { RootLayout } from './layouts/RootLayout'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { FilesPage } from './pages/FilesPage'
 import { RecentsPage } from './pages/RecentsPage'
 import { SectionPlaceholderPage } from './pages/SectionPlaceholderPage'
 
@@ -37,7 +38,7 @@ export const router = createBrowserRouter([
           },
           {
             path: appRouteSegment.files,
-            element: authed(<SectionPlaceholderPage title="Files" />),
+            element: authed(<FilesPage />),
           },
           {
             path: appRouteSegment.trash,

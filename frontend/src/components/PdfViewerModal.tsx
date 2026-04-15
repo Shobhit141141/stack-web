@@ -230,6 +230,7 @@ export function PdfViewerModal() {
       {fileId && (
         <motion.div
           key="pdf-modal"
+          data-no-link-import
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

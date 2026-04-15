@@ -6,6 +6,7 @@ const listSelect = {
   originalName: true,
   mimeType: true,
   size: true,
+  workspaceId: true,
   createdAt: true,
 } as const;
 
@@ -20,6 +21,7 @@ export async function createFileRecord(data: {
   storagePath: string;
   sourceType?: string;
   sourceUrl?: string | null;
+  workspaceId?: string | null;
 }): Promise<FileRow> {
   return prisma.file.create({
     data: {
@@ -31,6 +33,7 @@ export async function createFileRecord(data: {
       storagePath: data.storagePath,
       sourceType: data.sourceType ?? "upload",
       sourceUrl: data.sourceUrl ?? null,
+      ...(data.workspaceId !== undefined ? { workspaceId: data.workspaceId } : {}),
     },
   });
 }
@@ -79,6 +82,7 @@ export async function findFileByIdForUser(id: string, userId: string) {
       mimeType: true,
       size: true,
       storagePath: true,
+      workspaceId: true,
       createdAt: true,
     },
   });
@@ -162,4 +166,29 @@ export async function findContentIdsByFileIdsForUser(
     select: { id: true, contentId: true },
   });
   return new Map(rows.map((r) => [r.id, r.contentId]));
+}
+
+// lists file ids assigned to a workspace (caller must ensure workspace belongs to user).
+export async function findFileIdsByWorkspaceForUser(
+  userId: string,
+  workspaceId: string
+): Promise<string[]> {
+  const rows = await prisma.file.findMany({
+    where: { userId, workspaceId },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+// moves file into a workspace or clears workspace when workspaceId is null.
+export async function updateFileWorkspaceForUser(
+  fileId: string,
+  userId: string,
+  workspaceId: string | null
+): Promise<boolean> {
+  const r = await prisma.file.updateMany({
+    where: { id: fileId, userId },
+    data: { workspaceId },
+  });
+  return r.count > 0;
 }

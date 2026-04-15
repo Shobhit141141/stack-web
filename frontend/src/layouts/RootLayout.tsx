@@ -1,4 +1,5 @@
 import { Avatar, Box, Button, Flex } from '@radix-ui/themes'
+import { Toaster } from 'react-hot-toast'
 import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { AppSidebar } from '../components/AppSidebar'
@@ -30,6 +31,17 @@ export function RootLayout() {
 
   return (
     <Box className="relative flex min-h-svh flex-col bg-white">
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          className: 'font-sans text-sm',
+          style: {
+            background: '#171717',
+            color: '#fafafa',
+            border: '1px solid #404040',
+          },
+        }}
+      />
       <PdfViewerModal />
       <UploadModal />
       {showFullLoader ? <FullScreenLoader /> : null}
@@ -38,6 +50,7 @@ export function RootLayout() {
           <AppSidebar />
           <Box className="flex min-h-svh min-w-0 flex-1 flex-col">
             <Flex
+              data-no-link-import
               align="center"
               justify="between"
               px="4"

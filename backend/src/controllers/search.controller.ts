@@ -33,7 +33,9 @@ export async function getSemanticSearch(
     //     }
     //   ]
     const parsed = parseSearchQuery(req.query as Record<string, unknown>);
-    const result = await searchService.semanticSearchUserFiles(userId, parsed.q!);
+    const result = await searchService.semanticSearchUserFiles(userId, parsed.q!, {
+      workspaceId: parsed.workspaceId,
+    });
     activityService.logActivity({
       userId,
       type: "search",

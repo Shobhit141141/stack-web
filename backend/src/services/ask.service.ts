@@ -5,6 +5,7 @@ import * as embeddingService from "./embedding.service.js";
 import * as ragCompletionService from "./rag-completion.service.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as searchRepository from "../repositories/search.repository.js";
+import * as workspaceRepository from "../repositories/workspace.repository.js";
 import { askApiPanel } from "../utils/ask-log.util.js";
 import { log } from "../utils/logger/index.js";
 
@@ -60,6 +61,7 @@ export async function askUserFiles(params: {
   userId: string;
   query: string;
   fileIds?: string[];
+  workspaceId?: string;
 }): Promise<AskResult> {
   const t0 = performance.now();
   const rawQuery = params.query.trim();
@@ -67,18 +69,51 @@ export async function askUserFiles(params: {
   let scopedFileIds = 0;
   let restrictContentIds: string[] | undefined;
 
-  // if fileIds are provided need to restrict the search to the content IDs of the file
-  if (params.fileIds && params.fileIds.length > 0) {
-    const uniqueFileIds = [...new Set(params.fileIds)];
-    scopedFileIds = uniqueFileIds.length;
-    const map = await fileRepository.findContentIdsByFileIdsForUser(
-      params.userId,
-      uniqueFileIds
+  let effectiveFileIds: string[] | undefined;
+
+  if (params.workspaceId) {
+    const ws = await workspaceRepository.findWorkspaceByIdForUser(
+      params.workspaceId,
+      params.userId
     );
-    if (map.size !== uniqueFileIds.length) {
-      throw new InvalidFileIdsError();
+    if (!ws) {
+      throw new InvalidWorkspaceError();
     }
-    restrictContentIds = [...new Set([...map.values()])];
+    const wsFileIds = await fileRepository.findFileIdsByWorkspaceForUser(
+      params.userId,
+      params.workspaceId
+    );
+    const wsSet = new Set(wsFileIds);
+    if (params.fileIds && params.fileIds.length > 0) {
+      const unique = [...new Set(params.fileIds)];
+      for (const id of unique) {
+        if (!wsSet.has(id)) {
+          throw new InvalidFileIdsError();
+        }
+      }
+      effectiveFileIds = unique;
+    } else {
+      effectiveFileIds = wsFileIds;
+    }
+  } else if (params.fileIds && params.fileIds.length > 0) {
+    effectiveFileIds = params.fileIds;
+  }
+
+  if (effectiveFileIds !== undefined) {
+    const uniqueFileIds = [...new Set(effectiveFileIds)];
+    scopedFileIds = uniqueFileIds.length;
+    if (uniqueFileIds.length === 0) {
+      restrictContentIds = [];
+    } else {
+      const map = await fileRepository.findContentIdsByFileIdsForUser(
+        params.userId,
+        uniqueFileIds
+      );
+      if (map.size !== uniqueFileIds.length) {
+        throw new InvalidFileIdsError();
+      }
+      restrictContentIds = [...new Set([...map.values()])];
+    }
   }
 
   const tEmbed = performance.now();
@@ -349,5 +384,12 @@ export class InvalidFileIdsError extends Error {
   constructor() {
     super("INVALID_FILE_IDS");
     this.name = "InvalidFileIdsError";
+  }
+}
+
+export class InvalidWorkspaceError extends Error {
+  constructor() {
+    super("INVALID_WORKSPACE");
+    this.name = "InvalidWorkspaceError";
   }
 }

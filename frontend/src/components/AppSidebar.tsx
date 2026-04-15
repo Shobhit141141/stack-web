@@ -148,6 +148,7 @@ export function AppSidebar() {
 
   return (
     <motion.aside
+      data-no-link-import
       initial={false}
       animate={{
         width: collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED,

@@ -3,5 +3,6 @@ export type FileItem = {
   name: string
   type: string
   size: number
+  workspaceId: string | null
   createdAt: string
 }

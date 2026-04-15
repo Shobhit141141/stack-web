@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import * as embeddingService from "./embedding.service.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as searchRepository from "../repositories/search.repository.js";
+import * as workspaceService from "./workspace.service.js";
 import { publicFileTypeLabel } from "../utils/file-query-parser.js";
 import { log } from "../utils/logger/index.js";
 import { searchApiPanel } from "../utils/search-log.util.js";
@@ -34,9 +35,28 @@ export type SemanticSearchResultItem = {
 
 export async function semanticSearchUserFiles(
   userId: string,
-  query: string
+  query: string,
+  options?: { workspaceId?: string }
 ): Promise<{ results: SemanticSearchResultItem[] }> {
   const t0 = performance.now();
+
+  let restrictContentIds: string[] | undefined;
+  if (options?.workspaceId) {
+    await workspaceService.assertWorkspaceOwned(userId, options.workspaceId);
+    const fids = await fileRepository.findFileIdsByWorkspaceForUser(
+      userId,
+      options.workspaceId
+    );
+    if (fids.length === 0) {
+      restrictContentIds = [];
+    } else {
+      const map = await fileRepository.findContentIdsByFileIdsForUser(
+        userId,
+        fids
+      );
+      restrictContentIds = [...new Set([...map.values()])];
+    }
+  }
 
   const tEmbed = performance.now();
   const embedding = await embeddingService.embedQuery(query);
@@ -47,6 +67,7 @@ export async function semanticSearchUserFiles(
     userId,
     embedding,
     limit: NEAREST_CHUNK_LIMIT,
+    restrictContentIds,
   });
   const vectorMs = performance.now() - tVec;
 

@@ -7,6 +7,30 @@ export async function fetchRecentFiles(): Promise<FileItem[]> {
   return body.files
 }
 
+export async function fetchFileList(params?: {
+  page?: number
+  limit?: number
+  sort?: string
+  workspaceId?: string
+  unassignedOnly?: boolean
+}): Promise<{
+  files: FileItem[]
+  pagination: { page: number; total: number }
+}> {
+  const searchParams = new URLSearchParams()
+  if (params?.page != null) searchParams.set('page', String(params.page))
+  searchParams.set('limit', String(params?.limit ?? 50))
+  if (params?.sort) searchParams.set('sort', params.sort)
+  if (params?.workspaceId) searchParams.set('workspaceId', params.workspaceId)
+  if (params?.unassignedOnly) searchParams.set('unassigned', '1')
+  const q = searchParams.toString()
+  const res = await apiFetchOkAuthed(`/files${q ? `?${q}` : ''}`)
+  return (await res.json()) as {
+    files: FileItem[]
+    pagination: { page: number; total: number }
+  }
+}
+
 export async function fetchFileSignedUrl(fileId: string): Promise<string> {
   const res = await apiFetchOkAuthed(`/files/${fileId}`)
   const body = (await res.json()) as { signedUrl: string }

@@ -10,6 +10,7 @@ import {
 } from "../utils/file-query-parser.js";
 import { log } from "../utils/logger/index.js";
 import * as fileRepository from "../repositories/file.repository.js";
+import * as workspaceService from "./workspace.service.js";
 import * as storageService from "./storage.service.js";
 
 const RECENTS_LIMIT = 15;
@@ -55,6 +56,8 @@ export async function uploadUserFile(params: {
   originalName: string;
   mimeType: string;
   buffer: Buffer;
+  /** when set, file is created inside this workspace */
+  workspaceId?: string;
 }): Promise<{
   file: Awaited<ReturnType<typeof fileRepository.createFileRecord>>;
   shouldIndexContent: boolean;
@@ -89,6 +92,13 @@ export async function uploadUserFile(params: {
     throw new HttpError(502, "Could not store file");
   }
 
+  if (params.workspaceId) {
+    await workspaceService.assertWorkspaceOwned(
+      params.userId,
+      params.workspaceId
+    );
+  }
+
   try {
     let content = await fileRepository.findContentByHash(contentHash);
     let shouldIndexContent = false;
@@ -104,6 +114,9 @@ export async function uploadUserFile(params: {
       size: params.buffer.length,
       storagePath,
       sourceType: "upload",
+      ...(params.workspaceId !== undefined
+        ? { workspaceId: params.workspaceId }
+        : {}),
     });
     return { file, shouldIndexContent, contentId: content.id };
   } catch (e) {
@@ -123,10 +136,14 @@ export async function listUserFiles(
     name: string;
     type: string;
     size: number;
+    workspaceId: string | null;
     createdAt: string;
   }>;
   pagination: { page: number; total: number };
 }> {
+  if (parsed.workspaceId) {
+    await workspaceService.assertWorkspaceOwned(userId, parsed.workspaceId);
+  }
   const where = buildFileWhere(userId, parsed);
   const orderBy = buildFileOrderBy(parsed.sort);
   const skip = (parsed.page - 1) * parsed.limit;
@@ -145,12 +162,64 @@ export async function listUserFiles(
       name: row.originalName,
       type: publicFileTypeLabel(row.originalName, row.mimeType),
       size: sizeToSafeNumber(row.size),
+      workspaceId: row.workspaceId ?? null,
       createdAt: row.createdAt.toISOString(),
     })),
     pagination: {
       page: parsed.page,
       total,
     },
+  };
+}
+
+// assigns a file to a workspace or removes it from any workspace (workspaceId null).
+export async function assignUserFileWorkspace(params: {
+  userId: string;
+  fileId: string;
+  workspaceId: string | null;
+}): Promise<{
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  workspaceId: string | null;
+  createdAt: string;
+}> {
+  const row = await fileRepository.findFileByIdForUser(
+    params.fileId,
+    params.userId
+  );
+  if (!row) {
+    throw new HttpError(404, "File not found");
+  }
+  if (params.workspaceId !== null) {
+    await workspaceService.assertWorkspaceOwned(
+      params.userId,
+      params.workspaceId
+    );
+  }
+  const ok = await fileRepository.updateFileWorkspaceForUser(
+    params.fileId,
+    params.userId,
+    params.workspaceId
+  );
+  if (!ok) {
+    throw new HttpError(404, "File not found");
+  }
+  const updated = await fileRepository.findFileByIdForUser(
+    params.fileId,
+    params.userId
+  );
+  if (!updated) {
+    throw new HttpError(404, "File not found");
+  }
+  return {
+    id: updated.id,
+    name: updated.originalName,
+    type: publicFileTypeLabel(updated.originalName, updated.mimeType),
+    size: sizeToSafeNumber(updated.size),
+    workspaceId: updated.workspaceId ?? null,
+    createdAt: updated.createdAt.toISOString(),
   };
 }
 
@@ -203,6 +272,7 @@ export async function listRecentUserFiles(userId: string): Promise<{
     name: string;
     type: string;
     size: number;
+    workspaceId: string | null;
     createdAt: string;
   }>;
 }> {
@@ -216,6 +286,7 @@ export async function listRecentUserFiles(userId: string): Promise<{
       name: row.originalName,
       type: publicFileTypeLabel(row.originalName, row.mimeType),
       size: sizeToSafeNumber(row.size),
+      workspaceId: row.workspaceId ?? null,
       createdAt: row.createdAt.toISOString(),
     })),
   };

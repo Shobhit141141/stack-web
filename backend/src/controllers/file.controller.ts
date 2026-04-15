@@ -73,6 +73,53 @@ export async function listRecentFiles(
   }
 }
 
+export async function patchFile(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const rawId = req.params.id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  if (!id || !isUuid(id)) {
+    res.status(400).json({ error: "Invalid file id" });
+    return;
+  }
+  const body = req.body as { workspaceId?: unknown };
+  if (!("workspaceId" in body)) {
+    res.status(400).json({
+      error: "workspaceId is required (uuid string or null to unassign)",
+    });
+    return;
+  }
+  const wid = body.workspaceId;
+  let workspaceId: string | null;
+  if (wid === null) {
+    workspaceId = null;
+  } else if (typeof wid === "string" && isUuid(wid)) {
+    workspaceId = wid;
+  } else {
+    res.status(400).json({
+      error: "workspaceId must be a uuid string or null",
+    });
+    return;
+  }
+  try {
+    const row = await fileService.assignUserFileWorkspace({
+      userId,
+      fileId: id,
+      workspaceId,
+    });
+    res.json(row);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function getFileById(
   req: Request,
   res: Response,
@@ -199,6 +246,17 @@ export async function uploadFile(
     return;
   }
 
+  let uploadWorkspaceId: string | undefined;
+  const rawWs = req.query.workspaceId;
+  if (rawWs !== undefined && rawWs !== null && String(rawWs).trim() !== "") {
+    const w = String(Array.isArray(rawWs) ? rawWs[0] : rawWs).trim();
+    if (!isUuid(w)) {
+      res.status(400).json({ error: "Invalid workspaceId query parameter" });
+      return;
+    }
+    uploadWorkspaceId = w;
+  }
+
   try {
     const created: Array<{
       id: string;
@@ -214,6 +272,9 @@ export async function uploadFile(
         originalName: file.originalname,
         mimeType: file.mimetype,
         buffer: file.buffer,
+        ...(uploadWorkspaceId !== undefined
+          ? { workspaceId: uploadWorkspaceId }
+          : {}),
       });
 
     const outcomes =

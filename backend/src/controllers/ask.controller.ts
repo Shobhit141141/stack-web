@@ -5,6 +5,7 @@ import {
 } from "../config/env.js";
 import * as activityService from "../services/activity.service.js";
 import * as askService from "../services/ask.service.js";
+import { isUuid } from "../utils/uuid.js";
 
 export async function postAsk(req: Request, res: Response, next: NextFunction) {
   const userId = req.user?.id;
@@ -14,7 +15,11 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
   }
 
   try {
-    const body = req.body as { query?: unknown; fileIds?: unknown };
+    const body = req.body as {
+      query?: unknown;
+      fileIds?: unknown;
+      workspaceId?: unknown;
+    };
     if (typeof body.query !== "string") {
       res.status(400).json({ error: "query must be a string" });
       return;
@@ -39,6 +44,17 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
       fileIds = ids;
     }
 
+    let workspaceId: string | undefined;
+    if (body.workspaceId !== undefined) {
+      if (typeof body.workspaceId !== "string" || !isUuid(body.workspaceId)) {
+        res
+          .status(400)
+          .json({ error: "workspaceId must be a uuid string when provided" });
+        return;
+      }
+      workspaceId = body.workspaceId;
+    }
+
     if (!hasEmbeddingApiKey()) {
       res.status(503).json({ error: "Search embeddings are not configured" });
       return;
@@ -57,13 +73,22 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
       metadata: { query },
     });
 
-    const result = await askService.askUserFiles({ userId, query, fileIds });
+    const result = await askService.askUserFiles({
+      userId,
+      query,
+      fileIds,
+      workspaceId,
+    });
     res.json(result);
   } catch (e) {
     if (e instanceof askService.InvalidFileIdsError) {
       res.status(400).json({
         error: "One or more file IDs are invalid or not owned by you",
       });
+      return;
+    }
+    if (e instanceof askService.InvalidWorkspaceError) {
+      res.status(404).json({ error: "Workspace not found" });
       return;
     }
     next(e);
