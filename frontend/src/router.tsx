@@ -11,6 +11,7 @@ import { FilesPage } from './pages/FilesPage'
 import { RecentsPage } from './pages/RecentsPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 import { SectionPlaceholderPage } from './pages/SectionPlaceholderPage'
+import { TimelinePage } from './pages/TimelinePage'
 
 const authed = (node: ReactNode) => <RequireAuth>{node}</RequireAuth>
 
@@ -35,7 +36,7 @@ export const router = createBrowserRouter([
           },
           {
             path: appRouteSegment.timeline,
-            element: authed(<SectionPlaceholderPage title="Timeline" />),
+            element: authed(<TimelinePage />),
           },
           {
             path: appRouteSegment.files,

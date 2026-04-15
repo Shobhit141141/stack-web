@@ -307,7 +307,13 @@ export async function uploadFile(
       activityService.logActivity({
         userId,
         type: "upload",
-        metadata: { fileId: row.id, fileName: row.originalName },
+        metadata: {
+          fileId: row.id,
+          fileName: row.originalName,
+          ...(uploadWorkspaceId !== undefined
+            ? { workspaceId: uploadWorkspaceId }
+            : {}),
+        },
       });
 
       log.info(

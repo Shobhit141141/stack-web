@@ -39,7 +39,10 @@ export async function getSemanticSearch(
     activityService.logActivity({
       userId,
       type: "search",
-      metadata: { query: parsed.q },
+      metadata: {
+        query: parsed.q,
+        ...(parsed.workspaceId ? { workspaceId: parsed.workspaceId } : {}),
+      },
     });
     res.json(result);
   } catch (e) {

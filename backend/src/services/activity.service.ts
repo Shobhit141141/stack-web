@@ -52,12 +52,27 @@ function buildMetadata(
     if (typeof fileId !== "string" || !isUuid(fileId)) return null;
     if (typeof fileName !== "string" || !fileName.trim()) return null;
     const name = fileName.replace(/^.*[/\\]/, "").trim() || fileName.trim();
-    return { fileId, fileName: name.slice(0, 512) };
+    const row: Record<string, string> = {
+      fileId,
+      fileName: name.slice(0, 512),
+    };
+    const ws = metadata.workspaceId;
+    if (ws !== undefined && ws !== null && String(ws).trim() !== "") {
+      if (typeof ws !== "string" || !isUuid(ws)) return null;
+      row.workspaceId = ws;
+    }
+    return row as Prisma.InputJsonValue;
   }
   if (type === "chat" || type === "search") {
     const query = metadata.query;
     if (typeof query !== "string" || !query.trim()) return null;
-    return { query: trimQuery(query) };
+    const row: Record<string, string> = { query: trimQuery(query) };
+    const ws = metadata.workspaceId;
+    if (ws !== undefined && ws !== null && String(ws).trim() !== "") {
+      if (typeof ws !== "string" || !isUuid(ws)) return null;
+      row.workspaceId = ws;
+    }
+    return row as Prisma.InputJsonValue;
   }
   return null;
 }
@@ -148,6 +163,8 @@ export async function getUserActivity(params: {
   userId: string;
   limit?: number;
   cursor?: string | null;
+  /** when set, only rows whose metadata.workspaceId equals this uuid */
+  workspaceId?: string | null;
 }): Promise<{
   items: Array<{
     id: string;
@@ -176,6 +193,14 @@ export async function getUserActivity(params: {
 
   const where: Prisma.ActivityWhereInput = {
     userId: params.userId,
+    ...(params.workspaceId && isUuid(params.workspaceId)
+      ? {
+          metadata: {
+            path: ["workspaceId"],
+            equals: params.workspaceId,
+          },
+        }
+      : {}),
     ...(cursorDate && cursorId
       ? {
           OR: [

@@ -7,6 +7,17 @@ import * as activityService from "../services/activity.service.js";
 import * as askService from "../services/ask.service.js";
 import { isUuid } from "../utils/uuid.js";
 
+// strips server-side ask preamble so activity timeline shows the user question
+function chatQueryForActivityLog(bodyQuery: string): string {
+  const marker = "\n\nQuestion:\n";
+  const i = bodyQuery.lastIndexOf(marker);
+  if (i >= 0) {
+    const tail = bodyQuery.slice(i + marker.length).trim();
+    if (tail) return tail;
+  }
+  return bodyQuery;
+}
+
 export async function postAsk(req: Request, res: Response, next: NextFunction) {
   const userId = req.user?.id;
   if (!userId) {
@@ -70,7 +81,10 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
     activityService.logActivity({
       userId,
       type: "chat",
-      metadata: { query },
+      metadata: {
+        query: chatQueryForActivityLog(query),
+        ...(workspaceId ? { workspaceId } : {}),
+      },
     });
 
     const result = await askService.askUserFiles({

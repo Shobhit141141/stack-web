@@ -123,6 +123,15 @@ export function WorkspacePage() {
           </Link>
           <span aria-hidden>/</span>
           <span className="font-medium text-neutral-900">{name}</span>
+          <span aria-hidden className="text-neutral-300">
+            |
+          </span>
+          <Link
+            to={routeMap.timelineWorkspace(workspaceId)}
+            className="hover:text-neutral-900"
+          >
+            Timeline
+          </Link>
         </div>
       </div>
 

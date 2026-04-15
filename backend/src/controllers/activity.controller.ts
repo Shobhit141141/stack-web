@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import * as activityService from "../services/activity.service.js";
+import { isUuid } from "../utils/uuid.js";
 
 function parseLimit(raw: unknown): number | undefined | null {
   if (raw === undefined || raw === null || raw === "") return undefined;
@@ -32,10 +33,25 @@ export async function getActivity(
         ? cursorRaw.trim()
         : undefined;
 
+    const workspaceRaw = req.query.workspaceId;
+    let workspaceId: string | undefined;
+    if (
+      typeof workspaceRaw === "string" &&
+      workspaceRaw.trim() !== ""
+    ) {
+      const w = workspaceRaw.trim();
+      if (!isUuid(w)) {
+        res.status(400).json({ error: "Invalid workspaceId" });
+        return;
+      }
+      workspaceId = w;
+    }
+
     const result = await activityService.getUserActivity({
       userId,
       ...(limitParsed !== undefined ? { limit: limitParsed } : {}),
       cursor,
+      ...(workspaceId !== undefined ? { workspaceId } : {}),
     });
     res.json(result);
   } catch (e) {

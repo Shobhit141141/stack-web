@@ -19,6 +19,9 @@ export const routeMap = {
   trash: `/${appRouteSegment.trash}`,
   workspace: (workspaceId: string) =>
     `/${appRouteSegment.workspaces}/${workspaceId}`,
+  /** activity timeline filtered to one workspace (for chat history, uploads, searches in that ws) */
+  timelineWorkspace: (workspaceId: string) =>
+    `/${appRouteSegment.timeline}?workspaceId=${encodeURIComponent(workspaceId)}`,
 } as const
 
 export type AppRoutePath = Exclude<
