@@ -78,6 +78,136 @@ function formatScoresFromPacks(
     .join("; ");
 }
 
+type MetadataIntent =
+  | "uploadedAt"
+  | "fileType"
+  | "fileSize"
+  | "fileName"
+  | "source"
+  | "count"
+  | "list";
+
+function detectMetadataIntent(query: string): MetadataIntent | null {
+  const q = query.toLowerCase();
+  if (/\b(how many|count|number of files)\b/.test(q)) return "count";
+  if (/\b(list|show|what files do i have|which files)\b/.test(q)) return "list";
+  if (/\b(uploaded|when.*(uploaded|added|created)|created at|upload time)\b/.test(q))
+    return "uploadedAt";
+  if (/\b(type|format|mime)\b/.test(q)) return "fileType";
+  if (/\b(size|how big|file size|kb|mb|gb)\b/.test(q)) return "fileSize";
+  if (/\b(name|filename|file name)\b/.test(q)) return "fileName";
+  if (/\b(source|url|uploaded or link|link)\b/.test(q)) return "source";
+  return null;
+}
+
+function formatDateTimeShort(d: Date): string {
+  return new Intl.DateTimeFormat("en", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+}
+
+function formatSizeBytes(size: bigint): string {
+  const n = Number(size);
+  if (!Number.isFinite(n) || n < 0) return `${size.toString()} B`;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  const dec = v >= 100 || i === 0 ? 0 : 1;
+  return `${v.toFixed(dec)} ${units[i]}`;
+}
+
+function dedupeByFileId<T extends { id: string }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(r);
+  }
+  return out;
+}
+
+function buildMetadataSources(
+  files: fileRepository.FileSearchMetaRow[]
+): AskSource[] {
+  return dedupeByFileId(files).slice(0, 5).map((f) => ({
+    fileId: f.id,
+    fileName: f.originalName,
+    snippet: "metadata",
+  }));
+}
+
+function answerMetadataIntent(params: {
+  intent: MetadataIntent;
+  files: fileRepository.FileSearchMetaRow[];
+  workspaceScopedCount?: number;
+}): AskResult | null {
+  const files = dedupeByFileId(params.files);
+  if (params.intent === "count" && params.workspaceScopedCount !== undefined) {
+    const n = params.workspaceScopedCount;
+    return {
+      answer: n === 1 ? "You have 1 file in this workspace." : `You have ${n} files in this workspace.`,
+      sources: buildMetadataSources(files),
+    };
+  }
+  if (params.intent === "count" && files.length > 0) {
+    const n = files.length;
+    return {
+      answer: n === 1 ? "I found 1 file." : `I found ${n} files.`,
+      sources: buildMetadataSources(files),
+    };
+  }
+  if (files.length === 0) return null;
+
+  if (params.intent === "list") {
+    const names = files.slice(0, 10).map((f) => `• ${f.originalName}`);
+    return {
+      answer: `Here are files I found:\n${names.join("\n")}`,
+      sources: buildMetadataSources(files),
+    };
+  }
+  if (params.intent === "uploadedAt") {
+    const lines = files
+      .slice(0, 8)
+      .map((f) => `• ${f.originalName} — uploaded ${formatDateTimeShort(f.createdAt)}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "fileType") {
+    const lines = files
+      .slice(0, 8)
+      .map((f) => `• ${f.originalName} — ${f.mimeType}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "fileSize") {
+    const lines = files
+      .slice(0, 8)
+      .map((f) => `• ${f.originalName} — ${formatSizeBytes(f.size)}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "fileName") {
+    const lines = files.slice(0, 12).map((f) => `• ${f.originalName}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "source") {
+    const lines = files.slice(0, 8).map((f) => {
+      if (f.sourceType === "url" && f.sourceUrl) {
+        return `• ${f.originalName} — imported from ${f.sourceUrl}`;
+      }
+      return `• ${f.originalName} — uploaded manually`;
+    });
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  return null;
+}
+
 export async function askUserFiles(params: {
   userId: string;
   query: string;
@@ -93,6 +223,7 @@ export async function askUserFiles(params: {
   let restrictContentIds: string[] | undefined;
 
   let effectiveFileIds: string[] | undefined;
+  let workspaceScopedFileIds: string[] | undefined;
 
   let conversationId: string | undefined;
   if (params.conversationId) {
@@ -121,6 +252,7 @@ export async function askUserFiles(params: {
       params.userId,
       params.workspaceId
     );
+    workspaceScopedFileIds = wsFileIds;
     const wsSet = new Set(wsFileIds);
     if (params.fileIds && params.fileIds.length > 0) {
       const unique = [...new Set(params.fileIds)];
@@ -151,6 +283,77 @@ export async function askUserFiles(params: {
         throw new InvalidFileIdsError();
       }
       restrictContentIds = [...new Set([...map.values()])];
+    }
+  }
+
+  const metadataIntent = detectMetadataIntent(rawQuery);
+  if (metadataIntent) {
+    let metadataFiles: fileRepository.FileSearchMetaRow[] = [];
+    if (effectiveFileIds && effectiveFileIds.length > 0) {
+      metadataFiles = await fileRepository.findFilesByIdsForUser(
+        params.userId,
+        effectiveFileIds
+      );
+    } else if (
+      metadataIntent !== "count" &&
+      workspaceScopedFileIds &&
+      workspaceScopedFileIds.length > 0
+    ) {
+      metadataFiles = await fileRepository.findFilesByIdsForUser(
+        params.userId,
+        workspaceScopedFileIds.slice(0, 25)
+      );
+    }
+    const metadataResult = answerMetadataIntent({
+      intent: metadataIntent,
+      files: metadataFiles,
+      ...(workspaceScopedFileIds !== undefined
+        ? { workspaceScopedCount: workspaceScopedFileIds.length }
+        : {}),
+    });
+    if (metadataResult) {
+      if (conversationId) {
+        await conversationRepository.createMessage({
+          conversationId,
+          role: "user",
+          content: params.displayQuery || rawQuery,
+        });
+        await conversationRepository.createMessage({
+          conversationId,
+          role: "assistant",
+          content: metadataResult.answer,
+          ...(metadataResult.sources.length > 0
+            ? { sources: metadataResult.sources }
+            : {}),
+        });
+        await conversationRepository.touchConversationUpdatedAt(conversationId);
+      }
+      const totalMs = performance.now() - t0;
+      log.info(
+        askApiPanel({
+          userId: params.userId,
+          query: rawQuery,
+          queryChars: rawQuery.length,
+          scopedFileIds,
+          embedMs: 0,
+          vectorMs: 0,
+          llmMs: 0,
+          totalMs,
+          chunksFetched: 0,
+          chunksAfterScoreFilter: 0,
+          distinctContentsPacked: 0,
+          contentIdsBeforeDedup: [],
+          contentIdsAfterDedup: [],
+          scoresBeforeDedup: "(none)",
+          scoresAfterDedup: "(none)",
+          selectedChunksDetail: "(metadata-only)",
+          selectedChunkCount: 0,
+          contextChars: 0,
+          model: "metadata",
+          modelVersion: undefined,
+        })
+      );
+      return metadataResult;
     }
   }
 

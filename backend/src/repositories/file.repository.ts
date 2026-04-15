@@ -114,6 +114,10 @@ const searchMetaSelect = {
   contentId: true,
   originalName: true,
   mimeType: true,
+  size: true,
+  sourceType: true,
+  sourceUrl: true,
+  workspaceId: true,
   createdAt: true,
 } as const;
 
@@ -122,6 +126,10 @@ export type FileSearchMetaRow = {
   contentId: string;
   originalName: string;
   mimeType: string;
+  size: bigint;
+  sourceType: string;
+  sourceUrl: string | null;
+  workspaceId: string | null;
   createdAt: Date;
 };
 
@@ -146,6 +154,10 @@ export async function findFilesByContentIdsForUser(
            f.content_id AS "contentId",
            f.name AS "originalName",
            f.type AS "mimeType",
+           f.size,
+           f.source_type AS "sourceType",
+           f.source_url AS "sourceUrl",
+           f.workspace_id AS "workspaceId",
            f.created_at AS "createdAt"
     FROM "files" f
     WHERE f.user_id = ${userId}::uuid
