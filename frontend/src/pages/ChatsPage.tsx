@@ -18,6 +18,8 @@ export function ChatsPage() {
     status,
     lines,
     lastError,
+    connectStage,
+    connectSlow,
     connect,
     disconnect,
     sendText,
@@ -119,6 +121,17 @@ export function ChatsPage() {
         <Text size="2" color="red">
           {lastError}
         </Text>
+      ) : null}
+
+      {status === 'connecting' ? (
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">
+          {connectStage ? <p className="font-medium text-neutral-800">{connectStage}</p> : null}
+          {connectSlow ? (
+            <p className="mt-1 text-xs text-neutral-600">
+              Still waiting — allow microphone if prompted, or check VPN / network.
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <label className="flex flex-col gap-1">

@@ -2,8 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import VapiModule from '@vapi-ai/web'
 import { getSupabase } from '../lib/supabase'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
+import {
+  formatVapiConnectStage,
+  VAPI_CONNECT_SLOW_HINT_MS,
+  VAPI_CONNECT_TIMEOUT_MS,
+  VAPI_WEB_CALL_START_OPTIONS,
+} from '../lib/vapi-connect-settings'
 
-// CJS default export compat — Vite may or may not unwrap it
 const Vapi = (
   'default' in VapiModule ? (VapiModule as { default: typeof VapiModule }).default : VapiModule
 ) as typeof VapiModule
@@ -15,7 +20,6 @@ export type VapiTextChatStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 export type VapiChatLine = { id: string; role: 'user' | 'assistant'; text: string }
 
-// turns Vapi / Daily error payloads into readable text (never "[object Object]")
 function formatVapiError(e: unknown): string {
   if (e instanceof Error) return e.message
   if (typeof e === 'string') return e
@@ -48,15 +52,28 @@ function formatVapiError(e: unknown): string {
   return String(e)
 }
 
-// text chat over Vapi web call; passes userId (+ optional workspaceId) via assistantOverrides.metadata so tool webhooks receive them
 export function useVapiTextChat(options: { workspaceId?: string }) {
   const workspaceId = options.workspaceId
   const [status, setStatus] = useState<VapiTextChatStatus>('idle')
   const [lines, setLines] = useState<VapiChatLine[]>([])
   const [lastError, setLastError] = useState<string | null>(null)
+  const [connectStage, setConnectStage] = useState('')
+  const [connectSlow, setConnectSlow] = useState(false)
+
   const vapiRef = useRef<InstanceType<typeof Vapi> | null>(null)
+  const connectTimersRef = useRef<{
+    slow?: ReturnType<typeof setTimeout>
+    hard?: ReturnType<typeof setTimeout>
+  }>({})
 
   const configured = Boolean(VAPI_PUBLIC_KEY && VAPI_ASSISTANT_ID)
+
+  const clearConnectTimers = useCallback(() => {
+    const t = connectTimersRef.current
+    if (t.slow) clearTimeout(t.slow)
+    if (t.hard) clearTimeout(t.hard)
+    connectTimersRef.current = {}
+  }, [])
 
   useEffect(() => {
     if (!VAPI_PUBLIC_KEY) return
@@ -64,6 +81,9 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
     const vapi = new Vapi(VAPI_PUBLIC_KEY)
 
     vapi.on('call-start', () => {
+      clearConnectTimers()
+      setConnectSlow(false)
+      setConnectStage('')
       setStatus('connected')
       setLastError(null)
       try {
@@ -74,11 +94,23 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
       sendStackFileToolSessionHint(vapi)
     })
 
+    vapi.on('call-start-progress', (e: { stage?: string; status?: string }) => {
+      if (e?.status === 'started' && typeof e.stage === 'string') {
+        setConnectStage(formatVapiConnectStage(e.stage))
+      }
+    })
+
     vapi.on('call-end', () => {
+      clearConnectTimers()
+      setConnectSlow(false)
+      setConnectStage('')
       setStatus('idle')
     })
 
     vapi.on('error', (e: unknown) => {
+      clearConnectTimers()
+      setConnectSlow(false)
+      setConnectStage('')
       setStatus('error')
       setLastError(formatVapiError(e))
       setTimeout(() => setStatus('idle'), 4000)
@@ -100,17 +132,34 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
     vapiRef.current = vapi
 
     return () => {
+      clearConnectTimers()
       void vapi.stop()
       vapiRef.current = null
     }
-  }, [])
+  }, [VAPI_PUBLIC_KEY, clearConnectTimers])
 
   const connect = useCallback(async () => {
     const vapi = vapiRef.current
     if (!vapi || !VAPI_ASSISTANT_ID) return
 
-    setStatus('connecting')
+    clearConnectTimers()
+    setConnectSlow(false)
+    setConnectStage('')
     setLastError(null)
+    setStatus('connecting')
+
+    connectTimersRef.current.slow = setTimeout(
+      () => setConnectSlow(true),
+      VAPI_CONNECT_SLOW_HINT_MS,
+    )
+    connectTimersRef.current.hard = setTimeout(() => {
+      clearConnectTimers()
+      setConnectSlow(false)
+      setConnectStage('')
+      void vapi.stop()
+      setStatus('idle')
+      setLastError('Connection timed out. Tap Connect again or check mic / network.')
+    }, VAPI_CONNECT_TIMEOUT_MS)
 
     let userId: string | undefined
     const supabase = getSupabase()
@@ -120,30 +169,59 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
     }
 
     if (!userId) {
+      clearConnectTimers()
+      setConnectSlow(false)
+      setConnectStage('')
       setStatus('error')
       setLastError('Sign in required — userId is sent to Vapi for file search.')
       setTimeout(() => setStatus('idle'), 4000)
       return
     }
 
-    try {
-      await vapi.start(VAPI_ASSISTANT_ID, {
-        metadata: {
-          userId,
-          ...(workspaceId ? { workspaceId } : {}),
-        },
-      })
-    } catch (e) {
-      setStatus('error')
-      setLastError(formatVapiError(e))
-      setTimeout(() => setStatus('idle'), 4000)
+    const meta = {
+      userId,
+      ...(workspaceId ? { workspaceId } : {}),
     }
-  }, [workspaceId])
+
+    const runStart = async () =>
+      vapi.start(
+        VAPI_ASSISTANT_ID,
+        { metadata: meta },
+        undefined,
+        undefined,
+        undefined,
+        { ...VAPI_WEB_CALL_START_OPTIONS },
+      )
+
+    try {
+      await runStart()
+    } catch {
+      try {
+        await vapi.stop()
+      } catch {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 700))
+      try {
+        await runStart()
+      } catch (e2) {
+        clearConnectTimers()
+        setConnectSlow(false)
+        setConnectStage('')
+        setStatus('error')
+        setLastError(formatVapiError(e2))
+        setTimeout(() => setStatus('idle'), 4000)
+      }
+    }
+  }, [workspaceId, clearConnectTimers])
 
   const disconnect = useCallback(() => {
+    clearConnectTimers()
+    setConnectSlow(false)
+    setConnectStage('')
     void vapiRef.current?.stop()
     setStatus('idle')
-  }, [])
+  }, [clearConnectTimers])
 
   const sendText = useCallback(
     (text: string) => {
@@ -175,6 +253,8 @@ export function useVapiTextChat(options: { workspaceId?: string }) {
     status,
     lines,
     lastError,
+    connectStage,
+    connectSlow,
     connect,
     disconnect,
     sendText,
