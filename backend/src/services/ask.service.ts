@@ -6,6 +6,7 @@ import * as ragCompletionService from "./rag-completion.service.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as searchRepository from "../repositories/search.repository.js";
 import * as workspaceRepository from "../repositories/workspace.repository.js";
+import * as conversationRepository from "../repositories/conversation.repository.js";
 import { askApiPanel } from "../utils/ask-log.util.js";
 import { log } from "../utils/logger/index.js";
 
@@ -23,6 +24,8 @@ export type AskResult = {
 type ChunkHit = searchRepository.ChunkSearchRow & { score: number };
 
 const SNIPPET_MAX_CHARS = 400;
+const HISTORY_TURNS_MAX = 12;
+const HISTORY_MESSAGE_MAX_CHARS = 400;
 
 function distanceToScore(distance: number): number {
   return 1 / (1 + Math.max(distance, 0));
@@ -37,6 +40,23 @@ function truncateSnippet(text: string): string {
 function trimContextToMax(context: string, max: number): string {
   if (context.length <= max) return context;
   return `${context.slice(0, max)}…`;
+}
+
+function trimMessageForHistory(content: string): string {
+  const v = content.replace(/\s+/g, " ").trim();
+  if (v.length <= HISTORY_MESSAGE_MAX_CHARS) return v;
+  return `${v.slice(0, HISTORY_MESSAGE_MAX_CHARS)}…`;
+}
+
+function buildHistoryBlock(
+  rows: Array<{ role: string; content: string }>
+): string {
+  return rows
+    .map((m) => {
+      const role = m.role === "assistant" ? "assistant" : "user";
+      return `${role}: ${trimMessageForHistory(m.content)}`;
+    })
+    .join("\n");
 }
 
 function summarizeSelectedChunks(chunks: ChunkHit[]): string {
@@ -61,8 +81,10 @@ function formatScoresFromPacks(
 export async function askUserFiles(params: {
   userId: string;
   query: string;
+  displayQuery?: string;
   fileIds?: string[];
   workspaceId?: string;
+  conversationId?: string;
 }): Promise<AskResult> {
   const t0 = performance.now();
   const rawQuery = params.query.trim();
@@ -71,6 +93,21 @@ export async function askUserFiles(params: {
   let restrictContentIds: string[] | undefined;
 
   let effectiveFileIds: string[] | undefined;
+
+  let conversationId: string | undefined;
+  if (params.conversationId) {
+    const c = await conversationRepository.findConversationByIdForUser(
+      params.conversationId,
+      params.userId
+    );
+    if (!c) {
+      throw new InvalidConversationError();
+    }
+    if (params.workspaceId && c.workspaceId !== params.workspaceId) {
+      throw new InvalidConversationError();
+    }
+    conversationId = c.id;
+  }
 
   if (params.workspaceId) {
     const ws = await workspaceRepository.findWorkspaceByIdForUser(
@@ -274,8 +311,22 @@ export async function askUserFiles(params: {
 
   context = trimContextToMax(context, env.RAG_MAX_CONTEXT_CHARS);
 
+  let historyBlock = "";
+  if (conversationId) {
+    const historyRows =
+      await conversationRepository.listRecentMessagesForConversation({
+        conversationId,
+        limit: HISTORY_TURNS_MAX,
+      });
+    historyBlock = buildHistoryBlock(historyRows);
+  }
+
   const systemInstruction = buildAskSystemInstruction();
-  const userMessage = buildAskUserMessage({ context, query: rawQuery });
+  const userMessage = buildAskUserMessage({
+    context,
+    query: rawQuery,
+    ...(historyBlock ? { history: historyBlock } : {}),
+  });
 
   const tLlm = performance.now();
   let answer: string;
@@ -379,6 +430,21 @@ export async function askUserFiles(params: {
     })
   );
 
+  if (conversationId) {
+    await conversationRepository.createMessage({
+      conversationId,
+      role: "user",
+      content: params.displayQuery || rawQuery,
+    });
+    await conversationRepository.createMessage({
+      conversationId,
+      role: "assistant",
+      content: answer,
+      ...(sources.length > 0 ? { sources } : {}),
+    });
+    await conversationRepository.touchConversationUpdatedAt(conversationId);
+  }
+
   return { answer, sources };
 }
 
@@ -393,5 +459,12 @@ export class InvalidWorkspaceError extends Error {
   constructor() {
     super("INVALID_WORKSPACE");
     this.name = "InvalidWorkspaceError";
+  }
+}
+
+export class InvalidConversationError extends Error {
+  constructor() {
+    super("INVALID_CONVERSATION");
+    this.name = "InvalidConversationError";
   }
 }

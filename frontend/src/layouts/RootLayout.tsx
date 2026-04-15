@@ -32,7 +32,7 @@ export function RootLayout() {
   const showAppChrome = Boolean(ready && session && !configError)
 
   return (
-    <Box className="relative flex min-h-svh flex-col bg-white">
+    <Box className="relative flex h-svh flex-col overflow-hidden bg-white">
       <Toaster
         position="bottom-right"
         toastOptions={{
@@ -49,10 +49,10 @@ export function RootLayout() {
       <VoiceButton />
       {showFullLoader ? <FullScreenLoader /> : null}
       {showFullLoader ? null : showAppChrome ? (
-        <Flex className="min-h-svh w-full">
+        <Flex className="h-svh w-full overflow-hidden">
           <GlobalLinkPaste />
           <AppSidebar />
-          <Box className="flex min-h-svh min-w-0 flex-1 flex-col">
+          <Box className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <Flex
               align="center"
               justify="between"

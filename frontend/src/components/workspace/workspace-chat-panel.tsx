@@ -1,17 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { ChatAnswerContent, ChatSourceFileChips } from './chat-answer-content'
 import { postAsk, type AskSource } from '../../services/ask-service'
+import { fetchCurrentWorkspaceConversation } from '../../services/conversation-service'
 import { fetchFileList } from '../../services/file-service'
+import { openKnownFile } from '../../hooks/use-open-file'
 import type { FileItem } from '../../types/file'
-
-type ChatTag = { id: string; name: string }
 
 type ChatTurn = {
   role: 'user' | 'assistant'
   text: string
-  tags?: ChatTag[]
   sources?: AskSource[]
 }
 
@@ -20,11 +19,108 @@ type Props = {
   workspaceName: string
 }
 
-// builds ask query when user tagged files so the model knows scope + intent
-function buildAskQuery(userText: string, tags: ChatTag[]): string {
+const FILE_DRAG_MIME = 'application/x-stack-file'
+
+type MentionParseResult = {
+  fileIds: string[]
+  fileNames: string[]
+  normalizedQuestion: string
+}
+
+// matches @filename.pdf or @{filename with spaces.pdf} — dots allowed in bare mentions
+const MENTION_TOKEN_RE = /(@\{[^}]+\}|@[\w][\w.\-]*)/g
+
+function renderTextWithMentionHighlights(
+  text: string,
+  isUserBubble: boolean,
+  files: FileItem[],
+) {
+  const byName = new Map(files.map((f) => [f.name.toLowerCase(), f]))
+  const parts = text.split(MENTION_TOKEN_RE)
+  return parts.map((part, idx) => {
+    if (!part) return null
+    const isMention = part.startsWith('@{') || part.startsWith('@')
+    if (!isMention) return <Fragment key={`${part}-${idx}`}>{part}</Fragment>
+
+    const rawName = part.startsWith('@{') ? part.slice(2, -1) : part.slice(1)
+    const file = byName.get(rawName.toLowerCase())
+
+    const chip = (
+      <span
+        key={`${part}-${idx}`}
+        role={file ? 'button' : undefined}
+        tabIndex={file ? 0 : undefined}
+        onClick={file ? () => openKnownFile(file.id, file.name) : undefined}
+        onKeyDown={file ? (e) => { if (e.key === 'Enter') openKnownFile(file.id, file.name) } : undefined}
+        className={[
+          'mx-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold align-middle transition-colors',
+          isUserBubble
+            ? 'bg-white/15 text-white hover:bg-white/25'
+            : 'border border-neutral-200 bg-neutral-50 text-neutral-800 hover:bg-neutral-100',
+          file ? 'cursor-pointer' : '',
+        ].join(' ')}
+      >
+        <img
+          src={fileIconForName(rawName)}
+          alt=""
+          className="size-3.5 shrink-0"
+        />
+        <span className="max-w-48 truncate">{rawName}</span>
+      </span>
+    )
+    return chip
+  })
+}
+
+function fileIconForName(name: string): string {
+  const l = name.toLowerCase()
+  if (l.endsWith('.pdf')) return '/icons/pdf.svg'
+  if (l.endsWith('.docx')) return '/icons/docx-file.svg'
+  return '/icons/cloud.svg'
+}
+
+function formatInlineMention(fileName: string): string {
+  return `@${fileName}`
+}
+
+function parseMentionedFiles(query: string, files: FileItem[]): MentionParseResult {
+  const byName = new Map(files.map((f) => [f.name.toLowerCase(), f]))
+  const nameHits: string[] = []
+  const braced = query.matchAll(/@\{([^}]+)\}/g)
+  for (const m of braced) {
+    if (m[1]) nameHits.push(m[1])
+  }
+  const plainHits = query.match(/@([\w][\w.\-]*)/g) ?? []
+  for (const token of plainHits) {
+    nameHits.push(token.slice(1))
+  }
+  const ids = new Set<string>()
+  const names: string[] = []
+  for (const tokenName of nameHits) {
+    const rawName = tokenName.trim().toLowerCase()
+    if (!rawName) continue
+    const file = byName.get(rawName)
+    if (!file) continue
+    if (!ids.has(file.id)) names.push(file.name)
+    ids.add(file.id)
+  }
+  const normalizedQuestion = query
+    .replace(/@\{([^}]+)\}/g, '$1')
+    .replace(/@([\w][\w.\-]*)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return {
+    fileIds: [...ids],
+    fileNames: names,
+    normalizedQuestion,
+  }
+}
+
+// builds ask query when user tagged files inline so the model knows scope + intent
+function buildAskQuery(userText: string, fileNames: string[]): string {
   const q = userText.trim()
-  if (!tags.length) return q
-  const names = tags.map((t) => t.name).join(', ')
+  if (!fileNames.length) return q
+  const names = fileNames.join(', ')
   return `The user tagged these workspace files for this question; treat them as the primary context: ${names}.\n\nQuestion:\n${q}`
 }
 
@@ -52,8 +148,9 @@ function AssistantTypingRow() {
 export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   const [query, setQuery] = useState('')
   const [turns, setTurns] = useState<ChatTurn[]>([])
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [hydrating, setHydrating] = useState(true)
   const [sending, setSending] = useState(false)
-  const [tags, setTags] = useState<ChatTag[]>([])
   const [workspaceFiles, setWorkspaceFiles] = useState<FileItem[]>([])
   const [filesLoading, setFilesLoading] = useState(false)
 
@@ -76,6 +173,37 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         if (!cancelled) toast.error('Could not load workspace files for mentions.')
       } finally {
         if (!cancelled) setFilesLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    let cancelled = false
+    setHydrating(true)
+    setTurns([])
+    setConversationId(null)
+    ;(async () => {
+      try {
+        const snapshot = await fetchCurrentWorkspaceConversation(workspaceId)
+        if (cancelled) return
+        setConversationId(snapshot.conversationId)
+        setTurns(
+          snapshot.messages.map((m) => ({
+            role: m.role,
+            text: m.content,
+            ...(Array.isArray(m.sources) ? { sources: m.sources } : {}),
+          })),
+        )
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : 'Could not load conversation'
+          toast.error(msg)
+        }
+      } finally {
+        if (!cancelled) setHydrating(false)
       }
     })()
     return () => {
@@ -129,36 +257,73 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     const cur = ta.selectionStart
     const before = v.slice(0, mentionStart)
     const after = v.slice(cur)
-    const next = before + after
+    const inserted = `${formatInlineMention(file.name)} `
+    const next = before + inserted + after
     setQuery(next)
-    setTags((prev) => (prev.some((t) => t.id === file.id) ? prev : [...prev, { id: file.id, name: file.name }]))
     setMentionOpen(false)
     requestAnimationFrame(() => {
       ta.focus()
-      const pos = mentionStart
+      const pos = mentionStart + inserted.length
       ta.setSelectionRange(pos, pos)
     })
+  }
+
+  function insertInlineMention(name: string) {
+    const ta = textareaRef.current
+    if (!ta) return
+    const cur = ta.selectionStart
+    const v = ta.value
+    const before = v.slice(0, cur)
+    const after = v.slice(cur)
+    const needsSpaceBefore = before.length > 0 && !/\s$/.test(before)
+    const mention = `${needsSpaceBefore ? ' ' : ''}${formatInlineMention(name)} `
+    const next = `${before}${mention}${after}`
+    setQuery(next)
+    requestAnimationFrame(() => {
+      ta.focus()
+      const pos = before.length + mention.length
+      ta.setSelectionRange(pos, pos)
+    })
+  }
+
+  function handleTextareaDrop(e: React.DragEvent<HTMLTextAreaElement>) {
+    const raw = e.dataTransfer.getData(FILE_DRAG_MIME)
+    if (!raw) return
+    e.preventDefault()
+    try {
+      const payload = JSON.parse(raw) as { id?: unknown; name?: unknown }
+      if (typeof payload.name === 'string' && payload.name.trim()) {
+        insertInlineMention(payload.name.trim())
+      }
+    } catch {
+      // ignore malformed drag payload
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const q = query.trim()
-    if (!q || sending) return
+    if (!q || sending || hydrating) return
+    if (!conversationId) {
+      toast.error('Conversation is not ready yet. Please try again in a moment.')
+      return
+    }
 
-    const tagSnapshot = [...tags]
+    const mentionInfo = parseMentionedFiles(q, workspaceFiles)
     setSending(true)
     setQuery('')
-    setTags([])
     setMentionOpen(false)
-    setTurns((prev) => [...prev, { role: 'user', text: q, tags: tagSnapshot }])
+    setTurns((prev) => [...prev, { role: 'user', text: q }])
 
-    const askQuery = buildAskQuery(q, tagSnapshot)
-    const fileIds = tagSnapshot.length ? tagSnapshot.map((t) => t.id) : undefined
+    const askQuery = buildAskQuery(mentionInfo.normalizedQuestion || q, mentionInfo.fileNames)
+    const fileIds = mentionInfo.fileIds.length ? mentionInfo.fileIds : undefined
 
     try {
       const { answer, sources } = await postAsk({
         query: askQuery,
+        displayQuery: q,
         workspaceId,
+        conversationId,
         ...(fileIds?.length ? { fileIds } : {}),
       })
       setTurns((prev) => [...prev, { role: 'assistant', text: answer, sources }])
@@ -216,7 +381,11 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-6">
-        {turns.length === 0 ? (
+        {hydrating ? (
+          <Text size="2" color="gray">
+            Loading chat history…
+          </Text>
+        ) : turns.length === 0 ? (
           <Text size="2" color="gray">
             Ask a question about your workspace files. Responses use the RAG pipeline scoped to
             this workspace. Use @ to pick one or more files so search runs only inside those files.
@@ -237,21 +406,9 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                   <ChatSourceFileChips sources={t.sources ?? []} />
                 </>
               ) : (
-                <>
-                  {t.tags?.length ? (
-                    <div className="mb-2 flex flex-wrap gap-1">
-                      {t.tags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="rounded-md bg-white/15 px-2 py-0.5 text-xs font-medium text-white/95"
-                        >
-                          @{tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  <p className="whitespace-pre-wrap">{t.text}</p>
-                </>
+                <p className="whitespace-pre-wrap">
+                  {renderTextWithMentionHighlights(t.text, true, workspaceFiles)}
+                </p>
               )}
             </div>
           ))
@@ -263,29 +420,6 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         onSubmit={handleSubmit}
         className="relative shrink-0 border-t border-neutral-200 p-3"
       >
-        {tags.length > 0 ? (
-          <div className="mb-2 flex flex-wrap gap-1">
-            {tags.map((t) => (
-              <span
-                key={t.id}
-                className="inline-flex max-w-full items-center gap-1 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-xs text-neutral-800"
-              >
-                <span className="truncate" title={t.name}>
-                  @{t.name}
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-full px-1 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-900"
-                  onClick={() => setTags((prev) => prev.filter((x) => x.id !== t.id))}
-                  aria-label={`Remove ${t.name}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
-
         {mentionOpen && !filesLoading && workspaceFiles.length === 0 ? (
           <div className="absolute bottom-full left-3 right-3 z-10 mb-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-500 shadow-md">
             No files in this workspace yet.
@@ -323,6 +457,23 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           </div>
         ) : null}
 
+        {/* Tagged file chips */}
+        {(() => {
+          const mentioned = parseMentionedFiles(query, workspaceFiles)
+          return mentioned.fileNames.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-1">
+              {mentioned.fileNames.map((name) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700"
+                >
+                  @{name}
+                </span>
+              ))}
+            </div>
+          ) : null
+        })()}
+
         <div className="flex gap-2">
           <textarea
             ref={textareaRef}
@@ -337,14 +488,18 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
             onClick={() => syncMentionFromTextarea()}
             onSelect={() => syncMentionFromTextarea()}
             onKeyDown={handleTextareaKeyDown}
-            placeholder="Ask about these files… (@ tag, Enter send, Shift+Enter newline)"
-            disabled={sending}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(FILE_DRAG_MIME)) e.preventDefault()
+            }}
+            onDrop={handleTextareaDrop}
+            placeholder="Ask about these files… (@ to tag, Enter to send)"
+            disabled={sending || hydrating}
             rows={2}
             className="min-h-11 min-w-0 flex-1 resize-y rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-400 disabled:opacity-60"
           />
           <button
             type="submit"
-            disabled={sending || !query.trim()}
+            disabled={sending || hydrating || !query.trim()}
             className="h-fit shrink-0 self-start rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {sending ? '…' : 'Send'}

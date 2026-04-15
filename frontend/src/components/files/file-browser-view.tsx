@@ -1,4 +1,5 @@
 import { Text } from '@radix-ui/themes'
+import type { DragEvent } from 'react'
 import type { FileItem } from '../../types/file'
 import type { BrowserViewMode } from '../../hooks/use-browser-view-mode'
 import {
@@ -22,6 +23,15 @@ type Props = {
   onOpenFile: (file: FileItem) => void
 }
 
+const FILE_DRAG_MIME = 'application/x-stack-file'
+
+function onDragStartFile(ev: DragEvent<HTMLElement>, file: FileItem) {
+  const payload = JSON.stringify({ id: file.id, name: file.name })
+  ev.dataTransfer.setData(FILE_DRAG_MIME, payload)
+  ev.dataTransfer.setData('text/plain', `@${file.name}`)
+  ev.dataTransfer.effectAllowed = 'copy'
+}
+
 function formatDate(iso: string, style: DateStyle): string {
   return style === 'short' ? formatShortDate(iso) : formatRelativeTime(iso)
 }
@@ -39,6 +49,8 @@ function FileCardGrid({
     <button
       type="button"
       onClick={() => onOpen(file)}
+      draggable
+      onDragStart={(ev) => onDragStartFile(ev, file)}
       className="group flex cursor-pointer flex-col gap-2 rounded-xl bg-white p-4 text-left transition-colors"
     >
       <img
@@ -76,6 +88,8 @@ function FileRowList({
     <button
       type="button"
       onClick={() => onOpen(file)}
+      draggable
+      onDragStart={(ev) => onDragStartFile(ev, file)}
       className="group grid w-full cursor-pointer items-center rounded-lg bg-white px-0 py-3 text-left transition-colors"
       style={{ gridTemplateColumns: FILE_LIST_GRID_TEMPLATE, gap: '1rem' }}
     >

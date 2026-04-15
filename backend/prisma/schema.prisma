@@ -23,9 +23,10 @@ model User {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  files       File[]
-  activities  Activity[]
-  workspaces  Workspace[]
+  files         File[]
+  activities    Activity[]
+  workspaces    Workspace[]
+  conversations Conversation[]
 
   @@index([userName])
   @@map("users")
@@ -49,8 +50,9 @@ model Workspace {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  files File[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files         File[]
+  conversations Conversation[]
 
   @@index([userId])
   @@map("workspaces")
@@ -102,6 +104,37 @@ model Activity {
   @@index([userId, createdAt(sort: Desc)])
   @@index([type])
   @@map("activities")
+}
+
+model Conversation {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  title       String   @default("")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace?     @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  messages  ChatMessage[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([workspaceId])
+  @@map("conversations")
+}
+
+model ChatMessage {
+  id             String  @id @default(uuid()) @db.Uuid
+  conversationId String  @map("conversation_id") @db.Uuid
+  role           String  // "user" | "assistant"
+  content        String
+  sources        Json?   // AskSource[] for assistant messages
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
 }
 
 model FileChunk {

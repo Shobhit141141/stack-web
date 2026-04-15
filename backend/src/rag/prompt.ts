@@ -12,6 +12,10 @@ export function buildAskSystemInstruction(): string {
 export function buildAskUserMessage(params: {
   context: string;
   query: string;
+  history?: string;
 }): string {
-  return `Context from the user's files:\n\n${params.context}\n\nQuestion:\n${params.query}`;
+  const historyPart = params.history?.trim()
+    ? `Recent conversation:\n${params.history}\n\n`
+    : "";
+  return `${historyPart}Context from the user's files:\n\n${params.context}\n\nQuestion:\n${params.query}`;
 }

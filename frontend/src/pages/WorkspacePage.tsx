@@ -136,7 +136,7 @@ export function WorkspacePage() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <section className="flex min-h-[280px] min-w-0 flex-1 flex-col border-neutral-200 lg:min-h-0 lg:border-r">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col border-neutral-200 lg:border-r">
           {workspace ? (
             <WorkspaceChatPanel workspaceId={workspace.id} workspaceName={workspace.name} />
           ) : (

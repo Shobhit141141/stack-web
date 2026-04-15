@@ -28,8 +28,10 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
   try {
     const body = req.body as {
       query?: unknown;
+      displayQuery?: unknown;
       fileIds?: unknown;
       workspaceId?: unknown;
+      conversationId?: unknown;
     };
     if (typeof body.query !== "string") {
       res.status(400).json({ error: "query must be a string" });
@@ -66,6 +68,17 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
       workspaceId = body.workspaceId;
     }
 
+    let conversationId: string | undefined;
+    if (body.conversationId !== undefined) {
+      if (typeof body.conversationId !== "string" || !isUuid(body.conversationId)) {
+        res
+          .status(400)
+          .json({ error: "conversationId must be a uuid string when provided" });
+        return;
+      }
+      conversationId = body.conversationId;
+    }
+
     if (!hasEmbeddingApiKey()) {
       res.status(503).json({ error: "Search embeddings are not configured" });
       return;
@@ -87,11 +100,16 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
       },
     });
 
+    const displayQuery =
+      typeof body.displayQuery === "string" ? body.displayQuery.trim() : undefined;
+
     const result = await askService.askUserFiles({
       userId,
       query,
+      displayQuery,
       fileIds,
       workspaceId,
+      conversationId,
     });
     res.json(result);
   } catch (e) {
@@ -103,6 +121,10 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
     }
     if (e instanceof askService.InvalidWorkspaceError) {
       res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+    if (e instanceof askService.InvalidConversationError) {
+      res.status(404).json({ error: "Conversation not found" });
       return;
     }
     next(e);
