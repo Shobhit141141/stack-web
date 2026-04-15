@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { OpenAI } from "openai";
 import { env } from "../config/env.js";
 import type { RagCompletionResult } from "../types/rag-completion.js";
 
@@ -20,7 +20,11 @@ export async function openaiCreateEmbeddings(params: {
   dimensions?: number;
 }): Promise<number[][]> {
   const openai = getOpenAIClient();
-  const body: OpenAI.Embeddings.EmbeddingCreateParams = {
+  const body: {
+    model: string;
+    input: string[];
+    dimensions?: number;
+  } = {
     model: params.model,
     input: params.input,
   };
