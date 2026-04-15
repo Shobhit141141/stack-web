@@ -144,7 +144,7 @@ function subscribeDocumentReady(
       await registry.pluginsReady()
       if (cancelled) return
       const plugin = registry.getPlugin(DOCUMENT_MANAGER_ID)
-      const cap = plugin?.provides() as DocumentManagerCapability | undefined
+      const cap = plugin?.provides?.() as DocumentManagerCapability | undefined
       if (!cap) {
         finish()
         return

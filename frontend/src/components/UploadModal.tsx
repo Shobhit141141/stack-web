@@ -113,8 +113,8 @@ export function UploadModal() {
       })
 
     uppy.on('complete', (result) => {
-      const ok = result.successful.length
-      const failed = result.failed.length
+      const ok = result.successful?.length ?? 0
+      const failed = result.failed?.length ?? 0
       if (ok > 0) {
         toast.success(ok === 1 ? '1 file uploaded' : `${ok} files uploaded`)
       }
