@@ -5,6 +5,7 @@ export const appRouteSegment = {
   timeline: 'timeline',
   files: 'files',
   trash: 'trash',
+  workspaces: 'workspaces',
 } as const
 
 /** full paths for router, Link, and redirects */
@@ -16,6 +17,11 @@ export const routeMap = {
   timeline: `/${appRouteSegment.timeline}`,
   files: `/${appRouteSegment.files}`,
   trash: `/${appRouteSegment.trash}`,
+  workspace: (workspaceId: string) =>
+    `/${appRouteSegment.workspaces}/${workspaceId}`,
 } as const
 
-export type AppRoutePath = (typeof routeMap)[keyof typeof routeMap]
+export type AppRoutePath = Exclude<
+  (typeof routeMap)[keyof typeof routeMap],
+  (...args: string[]) => string
+>

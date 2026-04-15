@@ -10,6 +10,7 @@ import { askApiPanel } from "../utils/ask-log.util.js";
 import { log } from "../utils/logger/index.js";
 
 export type AskSource = {
+  fileId: string;
   fileName: string;
   snippet: string;
 };
@@ -342,6 +343,7 @@ export async function askUserFiles(params: {
     if (!file) continue;
     for (const ch of p.chunks) {
       sources.push({
+        fileId: file.id,
         fileName: file.originalName,
         snippet: truncateSnippet(ch.content),
       });

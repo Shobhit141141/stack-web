@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { FilesPage } from './pages/FilesPage'
 import { RecentsPage } from './pages/RecentsPage'
+import { WorkspacePage } from './pages/WorkspacePage'
 import { SectionPlaceholderPage } from './pages/SectionPlaceholderPage'
 
 const authed = (node: ReactNode) => <RequireAuth>{node}</RequireAuth>
@@ -39,6 +40,10 @@ export const router = createBrowserRouter([
           {
             path: appRouteSegment.files,
             element: authed(<FilesPage />),
+          },
+          {
+            path: `${appRouteSegment.workspaces}/:workspaceId`,
+            element: authed(<WorkspacePage />),
           },
           {
             path: appRouteSegment.trash,

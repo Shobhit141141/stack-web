@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { HiOutlineArrowUpTray, HiOutlineFolderPlus } from 'react-icons/hi2'
+import { FileBrowserView } from '../components/files/file-browser-view'
+import { ViewModeToggle } from '../components/files/view-mode-toggle'
+import { WorkspaceFolderBrowser } from '../components/workspaces/workspace-folder-browser'
 import {
   fetchFileList,
-  fetchFileSignedUrl,
 } from '../services/file-service'
 import {
   createWorkspace,
@@ -13,52 +16,29 @@ import {
 } from '../services/workspace-service'
 import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
 import { useUploadStore } from '../store/upload-store'
-import { usePdfViewerStore } from '../store/pdf-viewer-store'
-import { Skeleton } from '../components/ui/skeleton'
+import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
+import { useOpenFile } from '../hooks/use-open-file'
+import { routeMap } from '../lib/routes'
 import type { FileItem } from '../types/file'
 
 type FileFilter =
   | { kind: 'all' }
   | { kind: 'unassigned' }
-  | { kind: 'workspace'; id: string }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function fileIcon(type: string): string {
-  const t = type.toLowerCase()
-  if (t.includes('pdf')) return '/icons/pdf.svg'
-  if (t.includes('doc') || t.includes('word')) return '/icons/docx-file.svg'
-  return '/icons/cloud.svg'
-}
-
-function useOpenFile() {
-  const openPdf = usePdfViewerStore((s) => s.open)
-  return async (file: FileItem) => {
-    const isPdf = file.type.toLowerCase().includes('pdf')
-    if (isPdf) {
-      openPdf(file.id, file.name)
-    } else {
-      const url = await fetchFileSignedUrl(file.id)
-      window.open(url, '_blank', 'noopener')
-    }
-  }
-}
+const FOLDER_VIEW_KEY = 'stack-files-workspace-folders-view'
+const FILE_VIEW_KEY = 'stack-files-main-files-view'
 
 export function FilesPage() {
+  const navigate = useNavigate()
   const openUpload = useUploadStore((s) => s.open)
   const setLinkImportWorkspaceId = useLinkImportWorkspaceStore(
     (s) => s.setLinkImportWorkspaceId,
   )
+  const { view: folderView, setView: setFolderView } = useBrowserViewMode(FOLDER_VIEW_KEY)
+  const { view: fileView, setView: setFileView } = useBrowserViewMode(FILE_VIEW_KEY)
+
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
+  const [workspacesLoading, setWorkspacesLoading] = useState(true)
   const [filter, setFilter] = useState<FileFilter>({ kind: 'all' })
   const [files, setFiles] = useState<FileItem[]>([])
   const [total, setTotal] = useState(0)
@@ -71,11 +51,14 @@ export function FilesPage() {
   const openFile = useOpenFile()
 
   const loadWorkspaces = useCallback(async () => {
+    setWorkspacesLoading(true)
     try {
       const list = await fetchWorkspaces()
       setWorkspaces(list)
     } catch {
       toast.error('Could not load workspaces')
+    } finally {
+      setWorkspacesLoading(false)
     }
   }, [])
 
@@ -84,12 +67,8 @@ export function FilesPage() {
   }, [loadWorkspaces])
 
   useEffect(() => {
-    if (filter.kind === 'workspace') {
-      setLinkImportWorkspaceId(filter.id)
-    } else {
-      setLinkImportWorkspaceId(null)
-    }
-  }, [filter, setLinkImportWorkspaceId])
+    setLinkImportWorkspaceId(null)
+  }, [setLinkImportWorkspaceId])
 
   useEffect(() => {
     let cancelled = false
@@ -102,8 +81,6 @@ export function FilesPage() {
     }
     if (filter.kind === 'unassigned') {
       params.unassignedOnly = true
-    } else if (filter.kind === 'workspace') {
-      params.workspaceId = filter.id
     }
     fetchFileList(params)
       .then((res) => {
@@ -138,8 +115,9 @@ export function FilesPage() {
       setWorkspaces((prev) => [ws, ...prev])
       setNewWorkspaceName('')
       setCreateOpen(false)
-      setFilter({ kind: 'workspace', id: ws.id })
       toast.success(`Workspace “${ws.name}” created`)
+      await loadWorkspaces()
+      navigate(routeMap.workspace(ws.id))
     } catch {
       toast.error('Could not create workspace')
     } finally {
@@ -147,20 +125,16 @@ export function FilesPage() {
     }
   }
 
-  function defaultWorkspaceForUpload(): string | null {
-    if (filter.kind === 'workspace') return filter.id
-    return null
-  }
-
   return (
-    <div className="flex h-full flex-col gap-5 p-6">
+    <div className="flex h-full flex-col gap-8 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Text size="5" weight="bold" className="text-neutral-900">
             Files
           </Text>
           <Text size="2" color="gray" className="mt-1 block">
-            Organize uploads into workspaces and scope search and chat to a workspace.
+            Open a workspace folder to chat (RAG) and browse its files. Filters below apply to the
+            file list.
           </Text>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -174,9 +148,7 @@ export function FilesPage() {
           </button>
           <button
             type="button"
-            onClick={() =>
-              openUpload({ defaultWorkspaceId: defaultWorkspaceForUpload() })
-            }
+            onClick={() => openUpload({ defaultWorkspaceId: null })}
             className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
           >
             <HiOutlineArrowUpTray className="size-4" aria-hidden />
@@ -185,124 +157,72 @@ export function FilesPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Text size="2" weight="medium" className="mr-2 text-neutral-600">
-          Show:
-        </Text>
-        <button
-          type="button"
-          onClick={() => setFilter({ kind: 'all' })}
-          className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-            filter.kind === 'all'
-              ? 'bg-neutral-900 text-white'
-              : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-          }`}
-        >
-          All files
-        </button>
-        <button
-          type="button"
-          onClick={() => setFilter({ kind: 'unassigned' })}
-          className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-            filter.kind === 'unassigned'
-              ? 'bg-neutral-900 text-white'
-              : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-          }`}
-        >
-          No workspace
-        </button>
-        {workspaces.map((w) => (
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <Text size="4" weight="bold" className="text-neutral-900">
+            Workspaces
+          </Text>
+          <ViewModeToggle view={folderView} onChange={setFolderView} />
+        </div>
+        <WorkspaceFolderBrowser
+          workspaces={workspaces}
+          loading={workspacesLoading}
+          view={folderView}
+          workspaceHref={(id) => routeMap.workspace(id)}
+        />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Text size="4" weight="bold" className="text-neutral-900">
+            All files
+          </Text>
+          <ViewModeToggle view={fileView} onChange={setFileView} />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Text size="2" weight="medium" className="mr-1 text-neutral-600">
+            Show:
+          </Text>
           <button
-            key={w.id}
             type="button"
-            onClick={() => setFilter({ kind: 'workspace', id: w.id })}
-            className={`max-w-[12rem] truncate rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-              filter.kind === 'workspace' && filter.id === w.id
+            onClick={() => setFilter({ kind: 'all' })}
+            className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+              filter.kind === 'all'
                 ? 'bg-neutral-900 text-white'
                 : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
             }`}
-            title={w.name}
           >
-            {w.name}
+            All files
           </button>
-        ))}
-      </div>
-
-      {loading && (
-        <div className="flex flex-col gap-3">
-          {Array.from({ length: 6 }, (_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-4 rounded-xl border border-neutral-100 bg-white p-4"
-            >
-              <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <Skeleton className="h-4 w-1/3" />
-                <Skeleton className="h-3 w-24" />
-              </div>
-            </div>
-          ))}
+          <button
+            type="button"
+            onClick={() => setFilter({ kind: 'unassigned' })}
+            className={`rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+              filter.kind === 'unassigned'
+                ? 'bg-neutral-900 text-white'
+                : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+            }`}
+          >
+            No workspace
+          </button>
         </div>
-      )}
 
-      {!loading && error && (
-        <Text size="2" className="text-red-600">
-          {error}
-        </Text>
-      )}
+        <FileBrowserView
+          files={files}
+          loading={loading}
+          error={error}
+          emptyMessage="No files match this filter. Upload files or open a workspace folder."
+          view={fileView}
+          dateStyle="relative"
+          onOpenFile={(f) => void openFile(f)}
+        />
 
-      {!loading && !error && files.length === 0 && (
-        <Text size="2" className="text-neutral-500">
-          No files match this filter. Upload files or pick another workspace.
-        </Text>
-      )}
-
-      {!loading && !error && files.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-[1fr_6rem_8rem_10rem] gap-4 border-b border-neutral-200 pb-2 text-xs font-medium text-neutral-400">
-            <span>Name</span>
-            <span>Size</span>
-            <span>Workspace</span>
-            <span className="text-right">Added</span>
-          </div>
-          {files.map((f) => {
-            const ws = f.workspaceId
-              ? workspaces.find((w) => w.id === f.workspaceId)
-              : undefined
-            const wsName = ws ? ws.name : '—'
-            return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => void openFile(f)}
-                className="grid w-full cursor-pointer grid-cols-[1fr_6rem_8rem_10rem] items-center gap-4 rounded-lg border border-transparent bg-white py-3 text-left transition-colors hover:border-neutral-200 hover:bg-neutral-50"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <img src={fileIcon(f.type)} alt="" className="h-10 w-10 shrink-0" />
-                  <Text size="2" className="min-w-0 truncate font-medium text-neutral-900">
-                    {f.name}
-                  </Text>
-                </div>
-                <Text size="2" className="text-neutral-600">
-                  {formatSize(f.size)}
-                </Text>
-                <Text size="2" className="truncate text-neutral-600" title={wsName}>
-                  {wsName}
-                </Text>
-                <Text size="2" className="text-right text-neutral-500">
-                  {formatDate(f.createdAt)}
-                </Text>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {!loading && !error && total > files.length ? (
-        <Text size="1" color="gray">
-          Showing {files.length} of {total} files.
-        </Text>
-      ) : null}
+        {!loading && !error && total > files.length ? (
+          <Text size="1" color="gray">
+            Showing {files.length} of {total} files.
+          </Text>
+        ) : null}
+      </section>
 
       {createOpen ? (
         <div
