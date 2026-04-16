@@ -9,6 +9,7 @@ import XHRUpload from '@uppy/xhr-upload'
 import { useUploadStore } from '../store/upload-store'
 import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
 import { emitFilesUpdated } from '../lib/file-sync-events'
+import { fetchFileStorageSummary } from '../services/file-service'
 import { getSupabase } from '../lib/supabase'
 import { createWorkspace, fetchWorkspaces } from '../services/workspace-service'
 import type { WorkspaceItem } from '../services/workspace-service'
@@ -117,67 +118,107 @@ export function UploadModal() {
     if (!mount) return
 
     const initialWs = useUploadStore.getState().defaultWorkspaceId
+    let cancelled = false
 
-    const uppy = new Uppy({
-      restrictions: {
-        maxFileSize: 10 * 1024 * 1024,
-        allowedFileTypes: [
-          '.pdf',
-          '.docx',
-          'application/pdf',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        ],
-      },
-      autoProceed: false,
-    })
-      .use(XHRUpload, {
-        endpoint: buildFilesEndpoint(initialWs),
-        fieldName: 'file',
-        formData: true,
-        bundle: true,
+    void (async () => {
+      const defaultMaxBytes = 5 * 1024 * 1024
+      const defaultMaxFiles = 10
+      let maxBytesPerFile = defaultMaxBytes
+      let maxFilesAllowed = defaultMaxFiles
+      let usedFiles = 0
+      try {
+        const summary = await fetchFileStorageSummary()
+        if (cancelled) return
+        maxBytesPerFile = summary.maxBytesPerFile
+        maxFilesAllowed = summary.maxFiles
+        usedFiles = summary.fileCount
+      } catch {
+        if (!cancelled) {
+          toast.error('Could not load file quota. Limits still apply on the server.')
+        }
+      }
+      if (cancelled) return
+
+      const remainingSlots = Math.max(0, maxFilesAllowed - usedFiles)
+      if (remainingSlots === 0 && !cancelled) {
+        toast.error(
+          `You already have ${maxFilesAllowed} files (the maximum). Delete a file to upload more.`,
+        )
+      }
+
+      if (cancelled) return
+
+      const uppy = new Uppy({
+        restrictions: {
+          maxFileSize: maxBytesPerFile,
+          maxNumberOfFiles: remainingSlots,
+          allowedFileTypes: [
+            '.pdf',
+            '.docx',
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          ],
+        },
+        autoProceed: false,
       })
-      .use(Dashboard, {
-        inline: true,
-        target: mount,
-        width: '100%',
-        height: 420,
-        proudlyDisplayPoweredByUppy: false,
-        note: 'PDF and Word files. Uploads use the workspace selected above.',
-        theme: 'light',
+        .use(XHRUpload, {
+          endpoint: buildFilesEndpoint(initialWs),
+          fieldName: 'file',
+          formData: true,
+          bundle: true,
+        })
+        .use(Dashboard, {
+          inline: true,
+          target: mount,
+          width: '100%',
+          height: 420,
+          proudlyDisplayPoweredByUppy: false,
+          note: `PDF and Word, up to ${(maxBytesPerFile / (1024 * 1024)).toFixed(0)} MB each. You can add ${remainingSlots} more file${remainingSlots === 1 ? '' : 's'} (${usedFiles}/${maxFilesAllowed} in use). Workspace applies to uploads below.`,
+          theme: 'light',
+        })
+
+      uppy.on('complete', (result) => {
+        const ok = result.successful?.length ?? 0
+        const failed = result.failed?.length ?? 0
+        if (ok > 0) {
+          emitFilesUpdated({ workspaceId: selectedWorkspaceIdRef.current })
+          toast.success(ok === 1 ? '1 file uploaded' : `${ok} files uploaded`)
+        }
+        if (failed > 0) {
+          toast.error(failed === 1 ? '1 file failed to upload' : `${failed} files failed`)
+        }
+        if (ok > 0 || failed === 0) {
+          setTimeout(() => {
+            uppy.clear()
+            closeRef.current()
+          }, 1200)
+        }
       })
 
-    uppy.on('complete', (result) => {
-      const ok = result.successful?.length ?? 0
-      const failed = result.failed?.length ?? 0
-      if (ok > 0) {
-        emitFilesUpdated({ workspaceId: selectedWorkspaceIdRef.current })
-        toast.success(ok === 1 ? '1 file uploaded' : `${ok} files uploaded`)
-      }
-      if (failed > 0) {
-        toast.error(failed === 1 ? '1 file failed to upload' : `${failed} files failed`)
-      }
-      if (ok > 0 || failed === 0) {
-        setTimeout(() => {
-          uppy.clear()
-          closeRef.current()
-        }, 1200)
-      }
-    })
+      uppy.on('upload-error', (_file, err) => {
+        const msg =
+          err && typeof err === 'object' && 'message' in err
+            ? String((err as Error).message)
+            : 'Upload failed'
+        toast.error(msg)
+      })
 
-    uppy.on('upload-error', (_file, err) => {
-      const msg =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as Error).message)
-          : 'Upload failed'
-      toast.error(msg)
-    })
+      if (cancelled) {
+        uppy.destroy()
+        return
+      }
 
-    uppyRef.current = uppy
-    void applyXhrOptions(initialWs)
+      uppyRef.current = uppy
+      void applyXhrOptions(initialWs)
+    })()
 
     return () => {
-      uppy.destroy()
-      uppyRef.current = null
+      cancelled = true
+      const existing = uppyRef.current
+      if (existing) {
+        existing.destroy()
+        uppyRef.current = null
+      }
     }
   }, [isOpen, applyXhrOptions])
 
@@ -252,20 +293,33 @@ export function UploadModal() {
     }
 
     setUrlBusy(true)
-    const ws = selectedWorkspaceId ?? undefined
-    const promise = importFileFromUrl(url, undefined, ws)
-    toast.promise(promise, {
-      loading: 'Importing from link…',
-      success: (r) => {
-        emitFilesUpdated({ workspaceId: selectedWorkspaceIdRef.current })
-        setLinkUrl('')
-        closeRef.current()
-        return `Saved “${r.fileName}”`
-      },
-      error: (err) =>
-        err instanceof Error ? err.message : 'Could not import from this link',
-    })
     try {
+      try {
+        const summary = await fetchFileStorageSummary()
+        if (summary.fileCount >= summary.maxFiles) {
+          toast.error(
+            `You already have ${summary.maxFiles} files (the maximum). Delete a file to import from a link.`,
+          )
+          return
+        }
+      } catch {
+        toast.error('Could not check file quota. Try again.')
+        return
+      }
+
+      const ws = selectedWorkspaceId ?? undefined
+      const promise = importFileFromUrl(url, undefined, ws)
+      toast.promise(promise, {
+        loading: 'Importing from link…',
+        success: (r) => {
+          emitFilesUpdated({ workspaceId: selectedWorkspaceIdRef.current })
+          setLinkUrl('')
+          closeRef.current()
+          return `Saved “${r.fileName}”`
+        },
+        error: (err) =>
+          err instanceof Error ? err.message : 'Could not import from this link',
+      })
       await promise
     } finally {
       setUrlBusy(false)

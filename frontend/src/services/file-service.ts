@@ -1,5 +1,10 @@
 import { apiFetchOkAuthed } from '../lib/api-authed'
-import type { FileItem } from '../types/file'
+import type { FileItem, FileStorageSummary } from '../types/file'
+
+export async function fetchFileStorageSummary(): Promise<FileStorageSummary> {
+  const res = await apiFetchOkAuthed('/files/storage-summary')
+  return (await res.json()) as FileStorageSummary
+}
 
 export async function fetchRecentFiles(): Promise<FileItem[]> {
   const res = await apiFetchOkAuthed('/files/recents')

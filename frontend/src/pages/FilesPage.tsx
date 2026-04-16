@@ -25,6 +25,7 @@ import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-stor
 import { useUploadStore } from '../store/upload-store'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
+import { emitFilesUpdated } from '../lib/file-sync-events'
 import { routeMap } from '../lib/routes'
 import type { FileItem } from '../types/file'
 
@@ -121,12 +122,14 @@ export function FilesPage() {
 
   async function handleDeleteConfirm(file: FileItem) {
     await deleteFile(file.id)
+    emitFilesUpdated()
     toast.success('File deleted')
     await loadFiles()
   }
 
   async function handleBulkDeleteConfirm(items: FileItem[]) {
     await Promise.all(items.map((f) => deleteFile(f.id)))
+    emitFilesUpdated()
     toast.success(
       items.length === 1 ? 'File deleted' : `Deleted ${items.length} files`,
     )
@@ -310,6 +313,7 @@ export function FilesPage() {
         onClose={() => setWorkspaceDeleteTarget(null)}
         onConfirm={async (ws) => {
           await deleteWorkspace(ws.id)
+          emitFilesUpdated()
           toast.success(`Workspace “${ws.name}” deleted`)
           await loadWorkspaces()
         }}

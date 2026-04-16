@@ -10,6 +10,7 @@ import {
   PLAIN_MIME,
   URL_INGEST_ALLOWED_MIME_TYPES,
 } from "../constants/upload-file-types.js";
+import { USER_FILE_QUOTA_MAX_BYTES_PER_FILE } from "../constants/user-file-limits.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import { HttpError } from "../utils/http-error.js";
 import { cleanExtractedText } from "../utils/extraction/text-clean.util.js";
@@ -17,6 +18,7 @@ import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
 import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
 import { scheduleExtractionAfterUpload } from "./extraction.service.js";
+import * as fileService from "./file.service.js";
 import * as storageService from "./storage.service.js";
 import * as workspaceService from "./workspace.service.js";
 import { extractReadableTextFromHtml } from "../utils/url-ingest/html-readability.util.js";
@@ -358,6 +360,12 @@ export async function processUrlIngestJob(
       contentHash = createHash("sha256").update(uploadBody).digest("hex");
     }
 
+    if (uploadBody.length > USER_FILE_QUOTA_MAX_BYTES_PER_FILE) {
+      failClient(
+        `Imported file exceeds maximum size of ${USER_FILE_QUOTA_MAX_BYTES_PER_FILE / (1024 * 1024)} MB`
+      );
+    }
+
     const storagePath = storageService.buildStorageObjectPath(
       userId,
       originalName
@@ -380,27 +388,24 @@ export async function processUrlIngestJob(
       throw new Error("Could not store file");
     }
 
-    let content: { id: string; hash: string };
     let shouldIndexContent: boolean;
     let file: Awaited<ReturnType<typeof fileRepository.createFileRecord>>;
+    let contentId: string;
     try {
-      const existingContent = await fileRepository.findContentByHash(contentHash);
-      content = existingContent
-        ? existingContent
-        : await fileRepository.createContent(contentHash);
-      shouldIndexContent = !existingContent;
-
-      file = await fileRepository.createFileRecord({
+      const committed = await fileService.commitUserFileRecordAfterStorage({
         userId,
-        contentId: content.id,
+        contentHash,
         originalName,
         mimeType: uploadMime,
-        size: uploadBody.length,
+        sizeBytes: uploadBody.length,
         storagePath,
         sourceType: "url",
         sourceUrl,
-        ...(workspaceId ? { workspaceId } : {}),
+        workspaceId: workspaceId ?? null,
       });
+      file = committed.file;
+      shouldIndexContent = committed.shouldIndexContent;
+      contentId = committed.contentId;
     } catch (e) {
       await storageService
         .deleteFromFilesBucket(accessToken, storagePath)
@@ -417,7 +422,7 @@ export async function processUrlIngestJob(
         storagePath,
         mime: uploadMime,
         sizeBytes: uploadBody.length,
-        contentId: content.id,
+        contentId,
         dedup: shouldIndexContent ? "new_content" : "reused_content",
         next:
           shouldIndexContent && (uploadMime === PDF_MIME || uploadMime === DOCX_MIME)
@@ -434,14 +439,14 @@ export async function processUrlIngestJob(
 
     if (uploadMime === PDF_MIME || uploadMime === DOCX_MIME) {
       scheduleExtractionAfterUpload({
-        contentId: content.id,
+        contentId,
         buffer: uploadBody,
         mimeType: uploadMime,
         originalName,
       });
     } else if (uploadMime === PLAIN_MIME) {
       scheduleDocumentIndexAfterExtraction(
-        content.id,
+        contentId,
         uploadBody.toString("utf8")
       );
     }

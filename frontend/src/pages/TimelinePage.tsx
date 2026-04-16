@@ -6,6 +6,11 @@ import {
   type ActivityItem,
   type ActivityTypeName,
 } from '../services/activity-service'
+import {
+  formatActivityRelativeTime,
+  getActivityTitleLine,
+  parseActivityMetadata,
+} from '../utils/activity-display'
 import { fetchWorkspaces, type WorkspaceItem } from '../services/workspace-service'
 import { routeMap } from '../lib/routes'
 import { Skeleton } from '../components/ui/skeleton'
@@ -22,12 +27,6 @@ function readWorkspaceId(raw: string | null): string | undefined {
   if (!raw || !raw.trim()) return undefined
   const w = raw.trim()
   return isUuid(w) ? w : undefined
-}
-
-function parseMetadata(item: ActivityItem): Record<string, unknown> {
-  const m = item.metadata
-  if (!m || typeof m !== 'object') return {}
-  return m as Record<string, unknown>
 }
 
 function startOfLocalDay(d: Date): number {
@@ -66,7 +65,7 @@ function groupActivityByBucket(items: ActivityItem[]): { label: string; items: A
 
 // merges adjacent rows with same type + same payload (e.g. repeated searches)
 function dedupeKey(item: ActivityItem): string {
-  const meta = parseMetadata(item)
+  const meta = parseActivityMetadata(item)
   if (item.type === 'upload') {
     const name = typeof meta.fileName === 'string' ? meta.fileName.trim() : ''
     return `upload:${name}`
@@ -99,21 +98,6 @@ function aggregateConsecutiveRuns(items: ActivityItem[]): TimelineRun[] {
   return runs
 }
 
-function formatRelativeShort(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const diffMs = Date.now() - d.getTime()
-  const sec = Math.floor(diffMs / 1000)
-  if (sec < 45) return 'just now'
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
-  const day = Math.floor(hr / 24)
-  if (day < 7) return `${day}d ago`
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
 const DOT: Record<ActivityTypeName, string> = {
   chat: 'bg-violet-500',
   search: 'bg-sky-500',
@@ -126,37 +110,12 @@ const ICON: Record<ActivityTypeName, string> = {
   upload: '⬆️',
 }
 
-function typographicQuote(s: string, max = 96): string {
-  const t = s.trim()
-  const ell = t.length > max
-  const body = ell ? `${t.slice(0, max).trimEnd()}…` : t
-  const safe = body.replace(/"/g, '″')
-  return `“${safe}”`
-}
-
-function activityPrimaryLine(item: ActivityItem): string {
-  const meta = parseMetadata(item)
-  if (item.type === 'upload') {
-    const name =
-      typeof meta.fileName === 'string' && meta.fileName.trim()
-        ? meta.fileName.trim()
-        : 'a file'
-    return `Uploaded ${name}`
-  }
-  if (item.type === 'search') {
-    const q = typeof meta.query === 'string' ? meta.query.trim() : ''
-    return q ? `Searched ${typographicQuote(q)}` : 'Searched'
-  }
-  const q = typeof meta.query === 'string' ? meta.query.trim() : ''
-  return q ? `Asked ${typographicQuote(q)}` : 'Asked the assistant'
-}
-
 function representativeItem(run: TimelineRun): ActivityItem {
   return run.kind === 'single' ? run.item : run.items[0]!
 }
 
 function primaryLineForRun(run: TimelineRun): string {
-  const base = activityPrimaryLine(representativeItem(run))
+  const base = getActivityTitleLine(representativeItem(run))
   if (run.kind === 'cluster') return `${base} (${run.items.length} times)`
   return base
 }
@@ -206,7 +165,7 @@ function RowActionsMenu({ item }: { item: ActivityItem }) {
     return () => document.removeEventListener('click', onDoc)
   }, [])
 
-  const meta = parseMetadata(item)
+  const meta = parseActivityMetadata(item)
   const wid =
     typeof meta.workspaceId === 'string' && isUuid(meta.workspaceId)
       ? meta.workspaceId
@@ -328,7 +287,7 @@ function ActivityFeedRow({ run }: { run: TimelineRun }) {
               title={absTime}
               className="whitespace-nowrap pt-0.5 text-xs font-normal tabular-nums text-neutral-400"
             >
-              {formatRelativeShort(newestCreatedAt(run))}
+              {formatActivityRelativeTime(newestCreatedAt(run))}
             </time>
             <RowActionsMenu item={item} />
           </div>

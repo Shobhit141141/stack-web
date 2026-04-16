@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
+import { RecentTasksStrip } from '../components/recents/recent-tasks-strip'
 import { FileBrowserView } from '../components/files/file-browser-view'
 import { FileRenameDeleteModals } from '../components/files/file-rename-delete-modals'
 import { ViewModeToggle } from '../components/files/view-mode-toggle'
+import { emitFilesUpdated } from '../lib/file-sync-events'
 import { useRecentFiles } from '../hooks/use-recent-files'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
@@ -37,6 +39,7 @@ export function RecentsPage() {
 
   async function handleDeleteConfirm(file: FileItem) {
     await deleteFile(file.id)
+    emitFilesUpdated()
     toast.success('File deleted')
     await refetch()
   }
@@ -65,6 +68,8 @@ export function RecentsPage() {
         </Text>
         <ViewModeToggle view={view} onChange={setView} />
       </div>
+
+      <RecentTasksStrip />
 
       <FileBrowserView
         files={files}

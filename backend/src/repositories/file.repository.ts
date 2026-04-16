@@ -1,6 +1,9 @@
 import { type File as FileRow, Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
 
+// prisma root or transaction client for file + contents raw helpers
+export type FileDbClient = typeof prisma;
+
 const listSelect = {
   id: true,
   originalName: true,
@@ -12,18 +15,36 @@ const listSelect = {
 
 export type FileListRow = Prisma.FileGetPayload<{ select: typeof listSelect }>;
 
-export async function createFileRecord(data: {
-  userId: string;
-  contentId: string;
-  originalName: string;
-  mimeType: string;
-  size: number;
-  storagePath: string;
-  sourceType?: string;
-  sourceUrl?: string | null;
-  workspaceId?: string | null;
-}): Promise<FileRow> {
-  return prisma.file.create({
+export async function aggregateUserFilesForUser(userId: string): Promise<{
+  count: number;
+  totalSizeBytes: bigint;
+}> {
+  const r = await prisma.file.aggregate({
+    where: { userId },
+    _count: { _all: true },
+    _sum: { size: true },
+  });
+  return {
+    count: r._count._all,
+    totalSizeBytes: r._sum.size ?? 0n,
+  };
+}
+
+export async function createFileRecord(
+  data: {
+    userId: string;
+    contentId: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    storagePath: string;
+    sourceType?: string;
+    sourceUrl?: string | null;
+    workspaceId?: string | null;
+  },
+  db: FileDbClient = prisma
+): Promise<FileRow> {
+  return db.file.create({
     data: {
       userId: data.userId,
       contentId: data.contentId,
@@ -38,15 +59,18 @@ export async function createFileRecord(data: {
   });
 }
 
-export async function findContentByHash(hash: string) {
-  const rows = await prisma.$queryRaw<{ id: string; hash: string }[]>`
+export async function findContentByHash(
+  hash: string,
+  db: FileDbClient = prisma
+) {
+  const rows = await db.$queryRaw<{ id: string; hash: string }[]>`
     SELECT id, hash FROM "contents" WHERE hash = ${hash}
   `;
   return rows[0] ?? null;
 }
 
-export async function createContent(hash: string) {
-  const rows = await prisma.$queryRaw<{ id: string; hash: string }[]>`
+export async function createContent(hash: string, db: FileDbClient = prisma) {
+  const rows = await db.$queryRaw<{ id: string; hash: string }[]>`
     INSERT INTO "contents" ("id", "hash")
     VALUES (gen_random_uuid(), ${hash})
     RETURNING id, hash

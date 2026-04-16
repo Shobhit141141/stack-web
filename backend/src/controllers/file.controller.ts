@@ -1,6 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env.js";
+import { USER_FILE_QUOTA_MAX_FILES } from "../constants/user-file-limits.js";
 import { enqueueUrlIngest } from "../queue/url-ingest.queue.js";
+import * as fileRepository from "../repositories/file.repository.js";
 import { scheduleExtractionAfterUpload } from "../services/extraction.service.js";
 import * as activityService from "../services/activity.service.js";
 import * as fileService from "../services/file.service.js";
@@ -50,6 +52,24 @@ export async function searchFiles(
     const parsed = parseSearchQuery(req.query as Record<string, unknown>);
     const result = await fileService.listUserFiles(userId, parsed);
     res.json(result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getFileStorageSummary(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const summary = await fileService.getUserFileStorageSummary(userId);
+    res.json(summary);
   } catch (e) {
     next(e);
   }
@@ -324,6 +344,14 @@ export async function createFileFromUrl(
   }
 
   try {
+    const agg = await fileRepository.aggregateUserFilesForUser(userId);
+    if (agg.count >= USER_FILE_QUOTA_MAX_FILES) {
+      res.status(400).json({
+        error: `You already have ${USER_FILE_QUOTA_MAX_FILES} files (the maximum). Delete a file to import from a link.`,
+      });
+      return;
+    }
+
     const { id } = await enqueueUrlIngest({
       userId,
       accessToken: token,
@@ -374,6 +402,18 @@ export async function uploadFile(
   }
 
   try {
+    const existing = await fileRepository.aggregateUserFilesForUser(userId);
+    if (existing.count + files.length > USER_FILE_QUOTA_MAX_FILES) {
+      const room = Math.max(0, USER_FILE_QUOTA_MAX_FILES - existing.count);
+      res.status(400).json({
+        error:
+          room === 0
+            ? `You already have ${USER_FILE_QUOTA_MAX_FILES} files (the maximum). Delete a file to upload more.`
+            : `You can have at most ${USER_FILE_QUOTA_MAX_FILES} files (${existing.count} now). This upload has ${files.length} file(s); you can add at most ${room} more.`,
+      });
+      return;
+    }
+
     const created: Array<{
       id: string;
       name: string;

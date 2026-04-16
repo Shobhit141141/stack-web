@@ -11,6 +11,7 @@ import {
   type StackVoiceMeta,
 } from '../lib/stack-voice-meta'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
+import { emitFilesUpdated } from '../lib/file-sync-events'
 import { deleteFile, downloadFileBlob } from '../services/file-service'
 import {
   formatVapiConnectStage,
@@ -169,6 +170,7 @@ export function useVapi(options?: { workspaceId?: string }) {
   const deleteReferredFile = useCallback(async (fileId: string, fileName: string) => {
     try {
       await deleteFile(fileId)
+      emitFilesUpdated()
       toast.success(`Deleted ${fileName}`)
       setReferredFiles((prev) => prev.filter((x) => x.fileId !== fileId))
     } catch {

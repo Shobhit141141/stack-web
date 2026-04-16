@@ -14,6 +14,11 @@ router.get(
 router.post("/", requireAuth, uploadFileMemory, fileController.uploadFile);
 router.get("/search", requireAuth, fileController.searchFiles);
 router.get("/recents", requireAuth, fileController.listRecentFiles);
+router.get(
+  "/storage-summary",
+  requireAuth,
+  fileController.getFileStorageSummary
+);
 router.get("/", requireAuth, fileController.listFiles);
 router.patch("/:id", requireAuth, fileController.patchFile);
 router.delete("/:id", requireAuth, fileController.deleteFile);

@@ -14,7 +14,9 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { routeMap } from '../lib/routes'
 import type { MeProfile } from '../types/auth'
+import { useFileStorageSummary } from '../hooks/use-file-storage-summary'
 import { useUploadStore } from '../store/upload-store'
+import { formatFileSize } from '../utils/file-display'
 import { SegmentedProgressBar } from './ui/segmented-progress-bar'
 
 const SIDEBAR_WIDTH_EXPANDED = 240
@@ -157,6 +159,30 @@ export function AppSidebar() {
   const [accountOpen, setAccountOpen] = useState(false)
   const openUpload = useUploadStore((s) => s.open)
   const { profile, signOut } = useAuth()
+  const { data: storageSummary } = useFileStorageSummary()
+
+  const maxFiles = storageSummary?.maxFiles ?? 10
+  const fileCount = storageSummary?.fileCount ?? 0
+  const maxBytesPerFile = storageSummary?.maxBytesPerFile ?? 5 * 1024 * 1024
+  const totalSizeBytes = storageSummary?.totalSizeBytes ?? 0
+  const slotsUsedPercent =
+    maxFiles > 0 ? Math.min(100, Math.max(0, (fileCount / maxFiles) * 100)) : 0
+  const slotsFreeLabel =
+    maxFiles > 0 ? `${Math.max(0, maxFiles - fileCount)} free` : ''
+
+  const storageTooltip = (
+    <div className="max-w-[240px] space-y-1.5 text-left text-xs leading-snug normal-case">
+      <p className="font-medium">Files {fileCount} of {maxFiles}</p>
+      <p>
+        Total size {formatFileSize(totalSizeBytes)} (each file up to {formatFileSize(maxBytesPerFile)}
+        ).
+      </p>
+      <p className="opacity-90">
+        The meter shows how many of your {maxFiles} file slots are in use, not how full your disk
+        is.
+      </p>
+    </div>
+  )
 
   const railExpanded = hovered || accountOpen || focusInside
   const collapsed = !railExpanded
@@ -314,36 +340,41 @@ export function AppSidebar() {
           ].join(" ")}
         >
    
-          {/* Storage indicator — fixed h-[44px] so neither variant shifts the layout */}
-          <div className="relative flex h-[44px] w-full items-center justify-center" title="About 25% storage left">
-            {/* Circular (collapsed) */}
-            <motion.div
-              initial={false}
-              animate={{ opacity: collapsed ? 1 : 0 }}
-              transition={labelTransition}
-              className="absolute inset-0 flex items-center justify-center"
-              style={{ pointerEvents: collapsed ? 'auto' : 'none' }}
+          {/* Storage indicator — fixed h-[44px]; bar = file slots used (max 10 × 5 MB each) */}
+          <Tooltip delayDuration={300} content={storageTooltip}>
+            <div
+              className="relative flex h-[44px] w-full cursor-default items-center justify-center"
+              aria-label={`File slots in use: ${fileCount} of ${maxFiles}`}
             >
-              <CircularProgress percent={75} />
-            </motion.div>
-            {/* Segmented (expanded) */}
-            <motion.div
-              initial={false}
-              animate={{ opacity: collapsed ? 0 : 1 }}
-              transition={labelTransition}
-              className="absolute inset-0 flex w-full flex-col justify-center gap-1"
-              style={{ pointerEvents: collapsed ? 'none' : 'auto' }}
-            >
-              <SegmentedProgressBar
-                filledPercent={75}
-                segmentCount={24}
-                aria-label="Storage used, about 75 percent"
-              />
-              <Text size="1" weight="medium" className="text-center text-neutral-700">
-                25% left
-              </Text>
-            </motion.div>
-          </div>
+              {/* Circular (collapsed) */}
+              <motion.div
+                initial={false}
+                animate={{ opacity: collapsed ? 1 : 0 }}
+                transition={labelTransition}
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ pointerEvents: collapsed ? 'auto' : 'none' }}
+              >
+                <CircularProgress percent={slotsUsedPercent} />
+              </motion.div>
+              {/* Segmented (expanded) */}
+              <motion.div
+                initial={false}
+                animate={{ opacity: collapsed ? 0 : 1 }}
+                transition={labelTransition}
+                className="absolute inset-0 flex w-full flex-col justify-center gap-1"
+                style={{ pointerEvents: collapsed ? 'none' : 'auto' }}
+              >
+                <SegmentedProgressBar
+                  filledPercent={slotsUsedPercent}
+                  segmentCount={maxFiles}
+                  aria-label={`File slots used, ${fileCount} of ${maxFiles}`}
+                />
+                <Text size="1" weight="medium" className="text-center text-neutral-700">
+                  {fileCount}/{maxFiles} files · {slotsFreeLabel}
+                </Text>
+              </motion.div>
+            </div>
+          </Tooltip>
 
           {/* Account: popover anchored to trigger (profile + sign out) */}
           <div className="pointer-events-auto w-full">

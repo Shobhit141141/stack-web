@@ -1,5 +1,10 @@
 import { env } from "../config/env.js";
+import { Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
+import {
+  USER_FILE_QUOTA_MAX_BYTES_PER_FILE,
+  USER_FILE_QUOTA_MAX_FILES,
+} from "../constants/user-file-limits.js";
 import { HttpError } from "../utils/http-error.js";
 import {
   buildFileOrderBy,
@@ -12,12 +17,119 @@ import { log } from "../utils/logger/index.js";
 import * as activityRepository from "../repositories/activity.repository.js";
 import * as conversationRepository from "../repositories/conversation.repository.js";
 import * as fileRepository from "../repositories/file.repository.js";
+import type { FileDbClient } from "../repositories/file.repository.js";
 import * as workspaceRepository from "../repositories/workspace.repository.js";
 import * as workspaceService from "./workspace.service.js";
 import * as storageService from "./storage.service.js";
 import { getChunkVectorStore } from "../vector-store/index.js";
+import { prisma } from "../repositories/db.js";
 
 const RECENTS_LIMIT = 15;
+const USER_FILE_QUOTA_PG_LOCK_NS = 582_019_411;
+
+// serializes per-user file quota checks across concurrent uploads
+async function acquireUserFileQuotaLock(
+  db: Pick<typeof prisma, "$executeRaw">,
+  userId: string
+): Promise<void> {
+  await db.$executeRaw(Prisma.sql`
+    SELECT pg_advisory_xact_lock(
+      ${USER_FILE_QUOTA_PG_LOCK_NS}::integer,
+      hashtext(${userId}::text)::integer
+    )
+  `);
+}
+
+// runs after bytes are in storage: enforces max file count + creates db row (caller deletes storage on throw)
+export async function commitUserFileRecordAfterStorage(params: {
+  userId: string;
+  contentHash: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  storagePath: string;
+  sourceType: string;
+  sourceUrl?: string | null;
+  workspaceId?: string | null;
+}): Promise<{
+  file: Awaited<ReturnType<typeof fileRepository.createFileRecord>>;
+  shouldIndexContent: boolean;
+  contentId: string;
+}> {
+  if (params.sizeBytes > USER_FILE_QUOTA_MAX_BYTES_PER_FILE) {
+    throw new HttpError(
+      400,
+      `File exceeds maximum size of ${USER_FILE_QUOTA_MAX_BYTES_PER_FILE / (1024 * 1024)} MB`
+    );
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await acquireUserFileQuotaLock(tx, params.userId);
+    const fileCount = await tx.file.count({
+      where: { userId: params.userId },
+    });
+    if (fileCount >= USER_FILE_QUOTA_MAX_FILES) {
+      throw new HttpError(
+        400,
+        `You can have at most ${USER_FILE_QUOTA_MAX_FILES} files. Delete one to upload more.`
+      );
+    }
+
+    let content = await fileRepository.findContentByHash(
+      params.contentHash,
+      tx as unknown as FileDbClient
+    );
+    let shouldIndexContent = false;
+    if (!content) {
+      content = await fileRepository.createContent(
+        params.contentHash,
+        tx as unknown as FileDbClient
+      );
+      shouldIndexContent = true;
+    }
+
+    const file = await fileRepository.createFileRecord(
+      {
+        userId: params.userId,
+        contentId: content.id,
+        originalName: params.originalName,
+        mimeType: params.mimeType,
+        size: params.sizeBytes,
+        storagePath: params.storagePath,
+        sourceType: params.sourceType,
+        sourceUrl: params.sourceUrl ?? null,
+        ...(params.workspaceId !== undefined && params.workspaceId !== null
+          ? { workspaceId: params.workspaceId }
+          : {}),
+      },
+      tx as unknown as FileDbClient
+    );
+
+    return { file, shouldIndexContent, contentId: content.id };
+  });
+}
+
+export async function getUserFileStorageSummary(userId: string): Promise<{
+  fileCount: number;
+  maxFiles: number;
+  totalSizeBytes: number;
+  maxBytesPerFile: number;
+  maxTotalBytesIfFull: number;
+}> {
+  const agg = await fileRepository.aggregateUserFilesForUser(userId);
+  const total =
+    agg.totalSizeBytes > BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number.MAX_SAFE_INTEGER
+      : Number(agg.totalSizeBytes);
+  return {
+    fileCount: agg.count,
+    maxFiles: USER_FILE_QUOTA_MAX_FILES,
+    totalSizeBytes: total,
+    maxBytesPerFile: USER_FILE_QUOTA_MAX_BYTES_PER_FILE,
+    maxTotalBytesIfFull: USER_FILE_QUOTA_MAX_FILES * USER_FILE_QUOTA_MAX_BYTES_PER_FILE,
+  };
+}
+
 const FILE_NAME_MAX = 255;
 
 function normalizeFileName(raw: string): string {
@@ -80,6 +192,12 @@ export async function uploadUserFile(params: {
   if (params.buffer.length === 0) {
     throw new HttpError(400, "Empty file");
   }
+  if (params.buffer.length > USER_FILE_QUOTA_MAX_BYTES_PER_FILE) {
+    throw new HttpError(
+      400,
+      `File exceeds maximum size of ${USER_FILE_QUOTA_MAX_BYTES_PER_FILE / (1024 * 1024)} MB`
+    );
+  }
 
   const storagePath = storageService.buildStorageObjectPath(
     params.userId,
@@ -114,25 +232,17 @@ export async function uploadUserFile(params: {
   }
 
   try {
-    let content = await fileRepository.findContentByHash(contentHash);
-    let shouldIndexContent = false;
-    if (!content) {
-      content = await fileRepository.createContent(contentHash);
-      shouldIndexContent = true;
-    }
-    const file = await fileRepository.createFileRecord({
+    return await commitUserFileRecordAfterStorage({
       userId: params.userId,
-      contentId: content.id,
+      contentHash,
       originalName: name,
       mimeType: params.mimeType,
-      size: params.buffer.length,
+      sizeBytes: params.buffer.length,
       storagePath,
       sourceType: "upload",
-      ...(params.workspaceId !== undefined
-        ? { workspaceId: params.workspaceId }
-        : {}),
+      sourceUrl: null,
+      workspaceId: params.workspaceId ?? null,
     });
-    return { file, shouldIndexContent, contentId: content.id };
   } catch (e) {
     await storageService
       .deleteFromFilesBucket(params.accessToken, storagePath)
