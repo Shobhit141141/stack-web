@@ -3,8 +3,10 @@
 export type StackVoiceMeta = {
   sources?: Array<{ fileId: string; fileName: string }>
   clientAction?: {
-    type: 'openUrl'
-    url: string
+    type: 'openUrl' | 'copyText' | 'downloadFile'
+    url?: string
+    text?: string
+    fileId?: string
     fileName?: string
   }
 }

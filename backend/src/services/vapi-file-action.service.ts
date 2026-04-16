@@ -11,9 +11,9 @@ export async function handleStackFileAction(params: {
   args: Record<string, unknown>;
 }): Promise<{ result: string; meta: StackMetaPayload }> {
   const action = String(params.args.action ?? "").toLowerCase().trim();
-  if (!["download", "delete", "move"].includes(action)) {
+  if (!["download", "copy", "delete", "move"].includes(action)) {
     return {
-      result: "Unknown action. Use download, delete, or move.",
+      result: "Unknown action. Use download, copy, delete, or move.",
       meta: {},
     };
   }
@@ -76,17 +76,37 @@ export async function handleStackFileAction(params: {
         meta: {},
       };
     }
+    return {
+      result: `Downloading ${resolved.originalName}.`,
+      meta: {
+        clientAction: {
+          type: "downloadFile",
+          fileId: resolved.id,
+          fileName: resolved.originalName,
+        },
+      },
+    };
+  }
+
+  if (action === "copy") {
+    if (!params.accessToken) {
+      return {
+        result:
+          "Sign in and start voice from the app so link copy can be authorized.",
+        meta: {},
+      };
+    }
     const out = await fileService.getUserFileWithSignedUrl({
       accessToken: params.accessToken,
       userId: params.userId,
       fileId: resolved.id,
     });
     return {
-      result: `Opening download for ${resolved.originalName}.`,
+      result: `Copied link for ${resolved.originalName}.`,
       meta: {
         clientAction: {
-          type: "openUrl",
-          url: out.signedUrl,
+          type: "copyText",
+          text: out.signedUrl,
           fileName: resolved.originalName,
         },
       },

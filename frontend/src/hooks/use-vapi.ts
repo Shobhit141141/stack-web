@@ -47,17 +47,19 @@ function applyStackMetaFromText(
     setReferredFiles(meta.sources)
     console.log(`[voice] referredFiles set from ${label}:`, meta.sources)
   }
+  return meta
 }
 
 function removeDeletedFileFromRefs(
   text: unknown,
   setReferredFiles: Dispatch<SetStateAction<VoiceReferredFile[]>>,
-) {
-  if (typeof text !== 'string') return
+): string | null {
+  if (typeof text !== 'string') return null
   const m = text.match(/^Deleted\s+(.+)\.$/i)
-  if (!m?.[1]) return
+  if (!m?.[1]) return null
   const deletedName = m[1].trim().toLowerCase()
   setReferredFiles((prev) => prev.filter((f) => f.fileName.toLowerCase() !== deletedName))
+  return m[1].trim()
 }
 
 function extractModelOutputChunk(
@@ -122,14 +124,11 @@ export function useVapi(options?: { workspaceId?: string }) {
   const [lastConnectError, setLastConnectError] = useState<string | null>(null)
 
   const vapiRef = useRef<InstanceType<typeof Vapi> | null>(null)
-  const referredFilesRef = useRef<VoiceReferredFile[]>([])
-
-  useEffect(() => {
-    referredFilesRef.current = referredFiles
-  }, [referredFiles])
 
   const assistantTokenAccRef = useRef('')
   const sessionAliveRef = useRef(false)
+  const handledClientActionKeysRef = useRef<Set<string>>(new Set())
+  const handledDeleteToastKeysRef = useRef<Set<string>>(new Set())
   const connectTimersRef = useRef<{
     slow?: ReturnType<typeof setTimeout>
     hard?: ReturnType<typeof setTimeout>
@@ -188,44 +187,6 @@ export function useVapi(options?: { workspaceId?: string }) {
     }
   }, [])
 
-  const runVoiceFileCommand = useCallback(
-    async (utterance: string) => {
-      const u = utterance.toLowerCase()
-      const files = referredFilesRef.current
-      if (files.length === 0) return
-      const wantsDl = /\b(download|save)\b/.test(u)
-      const wantsCopy = /\b(copy|clipboard)\b/.test(u)
-      const wantsDel = /\b(delete|remove|trash)\b/.test(u)
-      if (!wantsDl && !wantsCopy && !wantsDel) return
-
-      let file = files[0]!
-      if (files.length > 1) {
-        const found = files.find((f) =>
-          u.includes(f.fileName.toLowerCase()),
-        )
-        if (!found) {
-          toast.error('Say which file name from the list below.')
-          return
-        }
-        file = found
-      }
-
-      if (wantsDl) {
-        await downloadReferredFile(file.fileId)
-        return
-      }
-      if (wantsCopy) {
-        await copyReferredFile(file.fileId)
-        return
-      }
-      if (wantsDel) {
-        await deleteReferredFile(file.fileId, file.fileName)
-        return
-      }
-    },
-    [copyReferredFile, deleteReferredFile, downloadReferredFile],
-  )
-
   useEffect(() => {
     if (!VAPI_PUBLIC_KEY) return
 
@@ -242,6 +203,8 @@ export function useVapi(options?: { workspaceId?: string }) {
       setTranscriptLive('')
       setAssistantLive('')
       assistantTokenAccRef.current = ''
+      handledClientActionKeysRef.current.clear()
+      handledDeleteToastKeysRef.current.clear()
       setAssistantTokenLive('')
       sessionAliveRef.current = true
       setReferredFiles([])
@@ -275,11 +238,50 @@ export function useVapi(options?: { workspaceId?: string }) {
     vapi.on('message', (msg: any) => {
       console.log('[voice] raw vapi message', msg)
 
+      const runMetaClientAction = (meta: ReturnType<typeof processAssistantVoiceText>['meta']) => {
+        if (!meta?.clientAction) return
+        if (meta.clientAction.type === 'downloadFile' && meta.clientAction.fileId) {
+          const key = `downloadFile:${meta.clientAction.fileId}`
+          if (handledClientActionKeysRef.current.has(key)) return
+          handledClientActionKeysRef.current.add(key)
+          void downloadReferredFile(meta.clientAction.fileId)
+          return
+        }
+        if (meta.clientAction.type === 'openUrl' && meta.clientAction.url) {
+          const key = `openUrl:${meta.clientAction.url}`
+          if (handledClientActionKeysRef.current.has(key)) return
+          handledClientActionKeysRef.current.add(key)
+          window.open(meta.clientAction.url, '_blank', 'noopener,noreferrer')
+          return
+        }
+        if (meta.clientAction.type === 'copyText' && meta.clientAction.text) {
+          const key = `copyText:${meta.clientAction.text}`
+          if (handledClientActionKeysRef.current.has(key)) return
+          handledClientActionKeysRef.current.add(key)
+          void navigator.clipboard
+            .writeText(meta.clientAction.text)
+            .then(() =>
+              toast.success(
+                `Copied link${meta.clientAction.fileName ? ` for ${meta.clientAction.fileName}` : ''}`,
+              ),
+            )
+            .catch(() => toast.error('Could not copy link'))
+        }
+      }
+
       // Vapi may deliver tool results separately from assistant transcript.
       // Parse STACK_META from tool_call_result so referenced files always reach UI.
       if (msg?.role === 'tool_call_result' && typeof msg.result === 'string') {
-        applyStackMetaFromText(msg.result, setReferredFiles, 'tool_call_result')
-        removeDeletedFileFromRefs(msg.result, setReferredFiles)
+        const meta = applyStackMetaFromText(msg.result, setReferredFiles, 'tool_call_result')
+        runMetaClientAction(meta)
+        const deletedName = removeDeletedFileFromRefs(msg.result, setReferredFiles)
+        if (deletedName) {
+          const key = deletedName.toLowerCase()
+          if (!handledDeleteToastKeysRef.current.has(key)) {
+            handledDeleteToastKeysRef.current.add(key)
+            toast.success(`Deleted ${deletedName}`)
+          }
+        }
       }
 
       // Some Vapi transports emit finalized tool outputs in conversation-update payloads.
@@ -291,13 +293,22 @@ export function useVapi(options?: { workspaceId?: string }) {
           if (!item || typeof item !== 'object') continue
           const o = item as Record<string, unknown>
           if (o.role === 'tool_call_result') {
-            applyStackMetaFromText(o.result, setReferredFiles, 'conversation-update.tool_call_result')
-            removeDeletedFileFromRefs(o.result, setReferredFiles)
+            const meta = applyStackMetaFromText(o.result, setReferredFiles, 'conversation-update.tool_call_result')
+            runMetaClientAction(meta)
+            const deletedName = removeDeletedFileFromRefs(o.result, setReferredFiles)
+            if (deletedName) {
+              const key = deletedName.toLowerCase()
+              if (!handledDeleteToastKeysRef.current.has(key)) {
+                handledDeleteToastKeysRef.current.add(key)
+                toast.success(`Deleted ${deletedName}`)
+              }
+            }
             continue
           }
           // OpenAI-style tool message shape
           if (o.role === 'tool') {
-            applyStackMetaFromText(o.content, setReferredFiles, 'conversation-update.tool')
+            const meta = applyStackMetaFromText(o.content, setReferredFiles, 'conversation-update.tool')
+            runMetaClientAction(meta)
           }
         }
       }
@@ -334,7 +345,6 @@ export function useVapi(options?: { workspaceId?: string }) {
               ...prev,
               { id: crypto.randomUUID(), role: 'user', text: trimmed },
             ])
-            void runVoiceFileCommand(trimmed)
           }
         }
       }
@@ -365,9 +375,7 @@ export function useVapi(options?: { workspaceId?: string }) {
               setReferredFiles(meta.sources)
               console.log('[voice] referredFiles set:', meta.sources)
             }
-            if (meta?.clientAction?.type === 'openUrl' && meta.clientAction.url) {
-              window.open(meta.clientAction.url, '_blank', 'noopener,noreferrer')
-            }
+            runMetaClientAction(meta)
           }
         }
       }
@@ -380,7 +388,7 @@ export function useVapi(options?: { workspaceId?: string }) {
       vapi.stop()
       vapiRef.current = null
     }
-  }, [VAPI_PUBLIC_KEY, clearConnectTimers, runVoiceFileCommand])
+  }, [VAPI_PUBLIC_KEY, clearConnectTimers, downloadReferredFile])
 
   const start = useCallback(async () => {
     const vapi = vapiRef.current
