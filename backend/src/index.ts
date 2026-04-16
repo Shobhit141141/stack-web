@@ -1,5 +1,9 @@
 import "dotenv/config";
-import { env } from "./config/env.js";
+import {
+  embeddingRuntimeLabel,
+  env,
+  ragCompletionModelDefault,
+} from "./config/env.js";
 import { maybeStartUrlIngestWorker } from "./workers/url-ingest.worker.js";
 import { log } from "./utils/logger/index.js";
 import app, { assertQdrantForStartup } from "./app.js";
@@ -12,6 +16,9 @@ maybeStartUrlIngestWorker();
 async function startServer() {
   await assertQdrantForStartup();
   app.listen(port, () => {
+    log.info(
+      `Model config · embedding=${embeddingRuntimeLabel()} rag=${env.RAG_COMPLETION_PROVIDER}:${ragCompletionModelDefault()}`,
+    );
     log.info(`Listening on http://localhost:${port}`);
   });
 }

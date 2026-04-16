@@ -86,7 +86,8 @@ function isTranscriptMessage(msg: { type?: string }): boolean {
   return t === 'transcript' || (typeof t === 'string' && t.startsWith('transcript'))
 }
 
-export function useVapi() {
+export function useVapi(options?: { workspaceId?: string }) {
+  const workspaceId = options?.workspaceId
   const [status, setStatus] = useState<VapiStatus>('idle')
   const [transcript, setTranscript] = useState('')
   const [assistantMessage, setAssistantMessage] = useState('')
@@ -393,6 +394,7 @@ export function useVapi() {
         {
           metadata: {
             ...(userId ? { userId } : {}),
+            ...(workspaceId ? { workspaceId } : {}),
             ...(accessToken ? { accessToken } : {}),
           },
         },
@@ -422,7 +424,7 @@ export function useVapi() {
         setTimeout(() => setStatus('idle'), 4000)
       }
     }
-  }, [clearConnectTimers])
+  }, [workspaceId, clearConnectTimers])
 
   // pause: mute mic + hide overlay but keep the Daily room alive
   const pause = useCallback(() => {

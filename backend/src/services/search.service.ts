@@ -7,16 +7,20 @@ import * as workspaceService from "./workspace.service.js";
 import { publicFileTypeLabel } from "../utils/file-query-parser.js";
 import { log } from "../utils/logger/index.js";
 import { searchApiPanel } from "../utils/search-log.util.js";
+import { logSemanticSearchDebug } from "../utils/debug-log.util.js";
 
 const NEAREST_CHUNK_LIMIT = 30;
 const MAX_RESULTS = 10;
 const SNIPPET_MAX_CHARS = 400;
-const SEARCH_MIN_SCORE = 0.40;
 
 function truncateSnippet(text: string): string {
   const t = text.replace(/\s+/g, " ").trim();
   if (t.length <= SNIPPET_MAX_CHARS) return t;
   return `${t.slice(0, SNIPPET_MAX_CHARS)}…`;
+}
+
+function fallbackSnippetForFileName(name: string): string {
+  return `Matched by filename: ${name}`;
 }
 
 export type SemanticSearchResultItem = {
@@ -74,7 +78,9 @@ export async function semanticSearchUserFiles(
   const vectorMs = performance.now() - tVec;
 
   const tAsm = performance.now();
-  const minScore = Math.max(SEARCH_MIN_SCORE, env.RAG_MIN_CHUNK_SCORE);
+  // keep semantic threshold aligned with ask RAG retrieval so /search and /ask
+  // return consistent matches for the same corpus/query.
+  const minScore = env.RAG_MIN_CHUNK_SCORE;
   const seen = new Map<string, { snippet: string; score: number }>();
   for (const row of chunks) {
     if (seen.has(row.contentId)) continue;
@@ -87,8 +93,37 @@ export async function semanticSearchUserFiles(
     if (seen.size >= MAX_RESULTS) break;
   }
 
+  // if vector search returned neighbors but all are below threshold, keep top nearest
+  // results as a fallback so semantic search does not appear broken on short/vague queries.
+  if (seen.size === 0 && chunks.length > 0) {
+    for (const row of chunks) {
+      if (seen.has(row.contentId)) continue;
+      const score = Math.max(0, 1 - row.distance);
+      seen.set(row.contentId, {
+        snippet: truncateSnippet(row.content),
+        score,
+      });
+      if (seen.size >= MAX_RESULTS) break;
+    }
+  }
+
   const orderedContentIds = [...seen.keys()];
   if (orderedContentIds.length === 0) {
+    const hinted = await fileRepository.findFilesByNameHintForUser(userId, query);
+    const filteredHinted =
+      options?.workspaceId === undefined
+        ? hinted
+        : hinted.filter((f) => f.workspaceId === options.workspaceId);
+    const fallback = filteredHinted.slice(0, MAX_RESULTS).map((f) => ({
+      contentId: "",
+      fileId: f.id,
+      fileName: f.originalName,
+      type: publicFileTypeLabel(f.originalName, f.mimeType),
+      createdAt: f.createdAt.toISOString(),
+      score: 0,
+      snippet: fallbackSnippetForFileName(f.originalName),
+      duplicates: [],
+    }));
     const assembleMs = performance.now() - tAsm;
     const totalMs = performance.now() - t0;
     log.info(
@@ -101,11 +136,19 @@ export async function semanticSearchUserFiles(
         totalMs,
         chunksFetched: chunks.length,
         distinctContents: 0,
-        resultsReturned: 0,
+        resultsReturned: fallback.length,
         duplicateFilesListed: 0,
       })
     );
-    return { results: [] };
+    logSemanticSearchDebug({
+      userId,
+      ...(options?.workspaceId ? { workspaceId: options.workspaceId } : {}),
+      question: query,
+      prompt: "embed query -> qdrant nearest-neighbor search -> score filter -> assemble results",
+      response: "No semantic matches",
+      sources: [],
+    });
+    return { results: fallback };
   }
 
   const files = await fileRepository.findFilesByContentIdsForUser(
@@ -164,6 +207,18 @@ export async function semanticSearchUserFiles(
       duplicateFilesListed,
     })
   );
+  logSemanticSearchDebug({
+    userId,
+    ...(options?.workspaceId ? { workspaceId: options.workspaceId } : {}),
+    question: query,
+    prompt: "embed query -> qdrant nearest-neighbor search -> score filter -> assemble results",
+    response: `Returned ${results.length} search result(s)`,
+    sources: results.map((r) => ({
+      fileId: r.fileId,
+      fileName: r.fileName,
+      score: Number(r.score.toFixed(4)),
+    })),
+  });
 
   return { results };
 }

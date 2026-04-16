@@ -9,6 +9,7 @@ import * as workspaceRepository from "../repositories/workspace.repository.js";
 import * as conversationRepository from "../repositories/conversation.repository.js";
 import { askApiPanel } from "../utils/ask-log.util.js";
 import { log } from "../utils/logger/index.js";
+import { logRagDebug } from "../utils/debug-log.util.js";
 
 export type AskSource = {
   fileId: string;
@@ -48,6 +49,17 @@ function trimMessageForHistory(content: string): string {
   const v = content.replace(/\s+/g, " ").trim();
   if (v.length <= HISTORY_MESSAGE_MAX_CHARS) return v;
   return `${v.slice(0, HISTORY_MESSAGE_MAX_CHARS)}…`;
+}
+
+function isNotFoundStyleAnswer(answer: string): boolean {
+  const v = answer.trim().toLowerCase();
+  if (!v) return true;
+  return (
+    v.includes("not found in files") ||
+    v.includes("couldn't find that in your files") ||
+    v.includes("could not find that in your files") ||
+    v === "not found"
+  );
 }
 
 function buildHistoryBlock(
@@ -605,6 +617,24 @@ export async function askUserFiles(params: {
       });
     }
   }
+
+  if (sources.length > 0 && isNotFoundStyleAnswer(answer)) {
+    const fileNames = [...new Set(sources.map((s) => s.fileName))].slice(0, 3);
+    answer =
+      fileNames.length === 1
+        ? `I found relevant content in ${fileNames[0]}.`
+        : `I found relevant content in ${fileNames.join(", ")}.`;
+  }
+
+  logRagDebug({
+    route: "ask",
+    userId: params.userId,
+    ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
+    query: rawQuery,
+    prompt: `${systemInstruction}\n\n---\n\n${userMessage}`,
+    response: answer,
+    sources: sources.map((s) => ({ fileId: s.fileId, fileName: s.fileName })),
+  });
 
   const totalMs = performance.now() - t0;
   log.info(

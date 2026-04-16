@@ -1,9 +1,17 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { HiOutlineMicrophone, HiOutlineXMark } from 'react-icons/hi2'
+import { useLocation } from 'react-router-dom'
 import { useVapi } from '../hooks/use-vapi'
 import { VoiceSessionOverlay } from './voice/voice-session-overlay'
 
+function workspaceIdFromPath(pathname: string): string | undefined {
+  const m = pathname.match(/^\/workspaces\/([^/]+)$/)
+  return m?.[1]
+}
+
 export function VoiceButton() {
+  const { pathname } = useLocation()
+  const workspaceId = workspaceIdFromPath(pathname)
   const {
     status,
     transcript,
@@ -23,7 +31,7 @@ export function VoiceButton() {
     downloadReferredFile,
     deleteReferredFile,
     moveReferredFile,
-  } = useVapi()
+  } = useVapi({ workspaceId })
 
   if (!configured) return null
 

@@ -7,6 +7,7 @@ import {
 } from "../config/env.js";
 import { log } from "../utils/logger/index.js";
 import { appendStackMetaIfNeeded } from "../utils/vapi-stack-meta.js";
+import { logVapiDebug } from "../utils/debug-log.util.js";
 
 /**
  * Vapi webhook — server URL for tools. RAG (askFiles / apiCalls), file actions (stackFileAction).
@@ -29,15 +30,64 @@ import { appendStackMetaIfNeeded } from "../utils/vapi-stack-meta.js";
 const RAG_TOOL_NAMES = new Set(["askfiles", "apicalls"]);
 const FILE_ACTION_TOOL_NAMES = new Set(["stackfileaction"]);
 
-// serializes webhook body for logs; caps length to keep output readable
+// serializes webhook body for logs with pretty formatting; caps length to keep output readable
 function vapiWebhookBodySummary(body: unknown): string {
   try {
-    const s = JSON.stringify(body);
-    const max = 4000;
+    const s = JSON.stringify(body, null, 2);
+    const max = 12_000;
     return s.length > max ? `${s.slice(0, max)}…(truncated)` : s;
   } catch {
     return "[body not serializable]";
   }
+}
+
+function logVapiAnswer(toolName: string, answer: string): void {
+  log.info(
+    [
+      `vapi webhook: answer (${toolName})`,
+      "──────────────────────────────────────────────────────────────",
+      answer || "(empty)",
+      "──────────────────────────────────────────────────────────────",
+    ].join("\n")
+  );
+}
+
+function vapiPromptFromBody(
+  body: Record<string, unknown> | undefined
+): string | undefined {
+  const artifact = body?.message && typeof body.message === "object"
+    ? (body.message as Record<string, unknown>).artifact
+    : undefined;
+  if (!artifact || typeof artifact !== "object") return undefined;
+  const openAiMessages = (artifact as Record<string, unknown>)
+    .messagesOpenAIFormatted;
+  if (!Array.isArray(openAiMessages)) return undefined;
+  const sys = openAiMessages.find(
+    (m) =>
+      m &&
+      typeof m === "object" &&
+      (m as Record<string, unknown>).role === "system"
+  ) as Record<string, unknown> | undefined;
+  return typeof sys?.content === "string" ? sys.content : undefined;
+}
+
+function vapiQuestionFromBody(
+  body: Record<string, unknown> | undefined
+): string | undefined {
+  const artifact = body?.message && typeof body.message === "object"
+    ? (body.message as Record<string, unknown>).artifact
+    : undefined;
+  if (!artifact || typeof artifact !== "object") return undefined;
+  const messages = (artifact as Record<string, unknown>).messages;
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (!m || typeof m !== "object") continue;
+    const o = m as Record<string, unknown>;
+    if (o.role !== "user") continue;
+    if (typeof o.message === "string" && o.message.trim()) return o.message;
+  }
+  return undefined;
 }
 
 // pulls query from OpenAI-style arguments (object or json string)
@@ -209,6 +259,9 @@ export async function vapiWebhook(
       body ?? {},
       msg
     );
+    log.info(
+      `vapi webhook: metadata resolved userId=${userId ?? "(none)"} workspaceId=${workspaceId ?? "(none)"} accessToken=${accessToken ? "present" : "missing"}`
+    );
 
     // --- tool-calls (OpenAI-style tools / server URL) ---
     if (msg.type === "tool-calls") {
@@ -323,6 +376,15 @@ export async function vapiWebhook(
           log.info(
             `vapi webhook: askUserFiles ok — answerLen=${text.length} sourceFiles=${ragResult.sources.length}`
           );
+          logVapiAnswer(t.name, text);
+          logVapiDebug({
+            userId,
+            workspaceId,
+            tool: t.name,
+            question: vapiQuestionFromBody(body),
+            prompt: vapiPromptFromBody(body),
+            response: text,
+          });
 
           results.push({
             name: t.name,
@@ -411,6 +473,15 @@ export async function vapiWebhook(
       log.info(
         `vapi webhook: askUserFiles ok — answerLen=${response.length} sourceFiles=${sources.length} preview="${response.slice(0, 120).replace(/\n/g, " ")}"`
       );
+      logVapiAnswer("askFiles", response);
+      logVapiDebug({
+        userId,
+        workspaceId,
+        tool: "askFiles",
+        question: vapiQuestionFromBody(body),
+        prompt: vapiPromptFromBody(body),
+        response,
+      });
 
       res.json({ results: [{ result: response }] });
       return;
