@@ -8,6 +8,7 @@ import { getSupabase } from '../lib/supabase'
 import {
   processAssistantVoiceText,
   stripStackMetaFromTranscript,
+  type StackVoiceMeta,
 } from '../lib/stack-voice-meta'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
 import { deleteFile, downloadFileBlob } from '../services/file-service'
@@ -38,8 +39,8 @@ function applyStackMetaFromText(
   text: unknown,
   setReferredFiles: Dispatch<SetStateAction<VoiceReferredFile[]>>,
   label: string,
-) {
-  if (typeof text !== 'string' || !text.trim()) return
+): StackVoiceMeta | null {
+  if (typeof text !== 'string' || !text.trim()) return null
   const { meta } = processAssistantVoiceText(text)
   console.log(`[voice] ${label} parsed meta:`, meta)
   console.log(`[voice] ${label} sources count:`, meta?.sources?.length ?? 0)
@@ -238,31 +239,34 @@ export function useVapi(options?: { workspaceId?: string }) {
     vapi.on('message', (msg: any) => {
       console.log('[voice] raw vapi message', msg)
 
-      const runMetaClientAction = (meta: ReturnType<typeof processAssistantVoiceText>['meta']) => {
-        if (!meta?.clientAction) return
-        if (meta.clientAction.type === 'downloadFile' && meta.clientAction.fileId) {
-          const key = `downloadFile:${meta.clientAction.fileId}`
+      const runMetaClientAction = (meta: StackVoiceMeta | null) => {
+        const clientAction = meta?.clientAction
+        if (!clientAction) return
+        if (clientAction.type === 'downloadFile' && clientAction.fileId) {
+          const key = `downloadFile:${clientAction.fileId}`
           if (handledClientActionKeysRef.current.has(key)) return
           handledClientActionKeysRef.current.add(key)
-          void downloadReferredFile(meta.clientAction.fileId)
+          void downloadReferredFile(clientAction.fileId)
           return
         }
-        if (meta.clientAction.type === 'openUrl' && meta.clientAction.url) {
-          const key = `openUrl:${meta.clientAction.url}`
+        if (clientAction.type === 'openUrl' && clientAction.url) {
+          const key = `openUrl:${clientAction.url}`
           if (handledClientActionKeysRef.current.has(key)) return
           handledClientActionKeysRef.current.add(key)
-          window.open(meta.clientAction.url, '_blank', 'noopener,noreferrer')
+          window.open(clientAction.url, '_blank', 'noopener,noreferrer')
           return
         }
-        if (meta.clientAction.type === 'copyText' && meta.clientAction.text) {
-          const key = `copyText:${meta.clientAction.text}`
+        if (clientAction.type === 'copyText' && clientAction.text) {
+          const textToCopy = clientAction.text
+          const fileNameForToast = clientAction.fileName
+          const key = `copyText:${textToCopy}`
           if (handledClientActionKeysRef.current.has(key)) return
           handledClientActionKeysRef.current.add(key)
           void navigator.clipboard
-            .writeText(meta.clientAction.text)
+            .writeText(textToCopy)
             .then(() =>
               toast.success(
-                `Copied link${meta.clientAction.fileName ? ` for ${meta.clientAction.fileName}` : ''}`,
+                `Copied link${fileNameForToast ? ` for ${fileNameForToast}` : ''}`,
               ),
             )
             .catch(() => toast.error('Could not copy link'))
