@@ -6,24 +6,31 @@ import type { FileItem } from '../../types/file'
 type Props = {
   renameTarget: FileItem | null
   deleteTarget: FileItem | null
+  bulkDeleteTargets?: FileItem[] | null
   onCloseRename: () => void
   onCloseDelete: () => void
+  onCloseBulkDelete?: () => void
   onRenameConfirm: (file: FileItem, newName: string) => Promise<void>
   onDeleteConfirm: (file: FileItem) => Promise<void>
+  onBulkDeleteConfirm?: (files: FileItem[]) => Promise<void>
 }
 
 // rename + delete as radix dialogs; parent owns which file is targeted
 export function FileRenameDeleteModals({
   renameTarget,
   deleteTarget,
+  bulkDeleteTargets = null,
   onCloseRename,
   onCloseDelete,
+  onCloseBulkDelete = () => {},
   onRenameConfirm,
   onDeleteConfirm,
+  onBulkDeleteConfirm = async () => {},
 }: Props) {
   const [renameValue, setRenameValue] = useState('')
   const [renameBusy, setRenameBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false)
 
   useEffect(() => {
     if (renameTarget) setRenameValue(renameTarget.name)
@@ -61,6 +68,19 @@ export function FileRenameDeleteModals({
       toast.error(e instanceof Error ? e.message : 'Could not delete file')
     } finally {
       setDeleteBusy(false)
+    }
+  }
+
+  async function submitBulkDelete() {
+    if (!bulkDeleteTargets?.length) return
+    setBulkDeleteBusy(true)
+    try {
+      await onBulkDeleteConfirm(bulkDeleteTargets)
+      onCloseBulkDelete()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not delete files')
+    } finally {
+      setBulkDeleteBusy(false)
     }
   }
 
@@ -137,6 +157,47 @@ export function FileRenameDeleteModals({
               onClick={() => void submitDelete()}
             >
               {deleteBusy ? 'Deleting…' : 'Delete'}
+            </Button>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Root>
+
+      <AlertDialog.Root
+        open={bulkDeleteTargets !== null && bulkDeleteTargets.length > 0}
+        onOpenChange={(open) => {
+          if (!open) onCloseBulkDelete()
+        }}
+      >
+        <AlertDialog.Content size="2" style={{ maxWidth: 440 }}>
+          <AlertDialog.Title>
+            Delete {bulkDeleteTargets?.length ?? 0}{' '}
+            {bulkDeleteTargets?.length === 1 ? 'file' : 'files'}?
+          </AlertDialog.Title>
+          <AlertDialog.Description size="2" color="gray" mb="3">
+            These files will be removed from storage and search. This cannot be undone.
+          </AlertDialog.Description>
+          {bulkDeleteTargets && bulkDeleteTargets.length > 0 ? (
+            <ul className="mb-4 max-h-48 overflow-y-auto rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-800">
+              {bulkDeleteTargets.map((f) => (
+                <li key={f.id} className="truncate py-0.5" title={f.name}>
+                  {f.name}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <AlertDialog.Cancel>
+              <Button type="button" variant="soft" color="gray" disabled={bulkDeleteBusy}>
+                Cancel
+              </Button>
+            </AlertDialog.Cancel>
+            <Button
+              type="button"
+              color="red"
+              disabled={bulkDeleteBusy}
+              onClick={() => void submitBulkDelete()}
+            >
+              {bulkDeleteBusy ? 'Deleting…' : 'Delete all'}
             </Button>
           </div>
         </AlertDialog.Content>

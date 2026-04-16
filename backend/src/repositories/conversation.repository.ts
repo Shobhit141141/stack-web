@@ -81,6 +81,16 @@ export async function touchConversationUpdatedAt(id: string): Promise<void> {
   });
 }
 
+// removes workspace chat threads; messages cascade.
+export async function deleteConversationsForWorkspace(
+  userId: string,
+  workspaceId: string
+): Promise<void> {
+  await prisma.conversation.deleteMany({
+    where: { userId, workspaceId },
+  });
+}
+
 export async function listMessagesForConversation(params: {
   conversationId: string;
   limit: number;
@@ -121,4 +131,42 @@ export async function createMessage(params: {
     },
     select: messageSelect,
   });
+}
+
+// drops rag source entries that referenced a deleted file so chat history stays consistent.
+export async function removeFileIdFromAssistantSourcesForUser(
+  userId: string,
+  fileId: string
+): Promise<void> {
+  const rows = await prisma.chatMessage.findMany({
+    where: {
+      role: "assistant",
+      sources: { not: Prisma.DbNull },
+      conversation: { userId },
+    },
+    select: { id: true, sources: true },
+  });
+
+  for (const row of rows) {
+    const src = row.sources;
+    if (!Array.isArray(src)) continue;
+    let changed = false;
+    const next = src.filter((item) => {
+      if (item && typeof item === "object" && "fileId" in item) {
+        const fid = (item as { fileId?: unknown }).fileId;
+        if (fid === fileId) {
+          changed = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    if (!changed) continue;
+    await prisma.chatMessage.update({
+      where: { id: row.id },
+      data: {
+        sources: next.length > 0 ? next : Prisma.DbNull,
+      },
+    });
+  }
 }

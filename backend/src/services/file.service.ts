@@ -9,7 +9,10 @@ import {
   type ParsedFileListQuery,
 } from "../utils/file-query-parser.js";
 import { log } from "../utils/logger/index.js";
+import * as activityRepository from "../repositories/activity.repository.js";
+import * as conversationRepository from "../repositories/conversation.repository.js";
 import * as fileRepository from "../repositories/file.repository.js";
+import * as workspaceRepository from "../repositories/workspace.repository.js";
 import * as workspaceService from "./workspace.service.js";
 import * as storageService from "./storage.service.js";
 import { getChunkVectorStore } from "../vector-store/index.js";
@@ -301,6 +304,68 @@ export async function deleteUserFile(params: {
     // content delete cascades file_chunks via FK
     await fileRepository.deleteContentById(row.contentId);
   }
+
+  // best-effort: drop upload activities and chat citations that pointed at this file
+  try {
+    await activityRepository.deleteUploadActivitiesForFile(
+      params.userId,
+      params.fileId
+    );
+  } catch (e) {
+    log.warn(
+      `activity cleanup after file delete failed fileId=${params.fileId}: ${String(e)}`
+    );
+  }
+  try {
+    await conversationRepository.removeFileIdFromAssistantSourcesForUser(
+      params.userId,
+      params.fileId
+    );
+  } catch (e) {
+    log.warn(
+      `chat sources cleanup after file delete failed fileId=${params.fileId}: ${String(e)}`
+    );
+  }
+}
+
+// deletes every file in the workspace (storage, db, vectors when content unused), chat threads, workspace-tagged activities, then the workspace row.
+export async function deleteWorkspaceAndRelated(params: {
+  accessToken: string;
+  userId: string;
+  workspaceId: string;
+}): Promise<void> {
+  await workspaceService.assertWorkspaceOwned(
+    params.userId,
+    params.workspaceId
+  );
+  const fileIds = await fileRepository.findFileIdsByWorkspaceForUser(
+    params.userId,
+    params.workspaceId
+  );
+  for (const fileId of fileIds) {
+    await deleteUserFile({
+      accessToken: params.accessToken,
+      userId: params.userId,
+      fileId,
+    });
+  }
+  await conversationRepository.deleteConversationsForWorkspace(
+    params.userId,
+    params.workspaceId
+  );
+  try {
+    await activityRepository.deleteActivitiesForWorkspace(
+      params.userId,
+      params.workspaceId
+    );
+  } catch (e) {
+    log.warn(`activity cleanup for workspace delete failed: ${String(e)}`);
+  }
+  const ok = await workspaceRepository.deleteWorkspace(
+    params.workspaceId,
+    params.userId
+  );
+  if (!ok) throw new HttpError(404, "Workspace not found");
 }
 
 export async function getUserFileWithSignedUrl(params: {

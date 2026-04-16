@@ -32,3 +32,36 @@ export async function listActivities(
     },
   });
 }
+
+// removes upload timeline rows that pointed at this file (metadata.fileId json path).
+export async function deleteUploadActivitiesForFile(
+  userId: string,
+  fileId: string
+): Promise<void> {
+  await prisma.activity.deleteMany({
+    where: {
+      userId,
+      type: "upload",
+      metadata: {
+        path: ["fileId"],
+        equals: fileId,
+      },
+    },
+  });
+}
+
+// timeline rows tagged with this workspace (upload/chat/search metadata.workspaceId).
+export async function deleteActivitiesForWorkspace(
+  userId: string,
+  workspaceId: string
+): Promise<void> {
+  await prisma.activity.deleteMany({
+    where: {
+      userId,
+      metadata: {
+        path: ["workspaceId"],
+        equals: workspaceId,
+      },
+    },
+  });
+}

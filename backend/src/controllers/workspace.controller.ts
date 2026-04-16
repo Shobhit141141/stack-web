@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import * as fileService from "../services/file.service.js";
 import * as workspaceService from "../services/workspace.service.js";
 import { isUuid } from "../utils/uuid.js";
 
@@ -78,7 +79,8 @@ export async function deleteWorkspace(
   next: NextFunction
 ) {
   const userId = req.user?.id;
-  if (!userId) {
+  const token = req.accessToken;
+  if (!userId || !token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -89,7 +91,11 @@ export async function deleteWorkspace(
     return;
   }
   try {
-    await workspaceService.deleteWorkspace(userId, id);
+    await fileService.deleteWorkspaceAndRelated({
+      accessToken: token,
+      userId,
+      workspaceId: id,
+    });
     res.status(204).send();
   } catch (e) {
     next(e);

@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { FileBrowserView } from '../components/files/file-browser-view'
 import { FileRenameDeleteModals } from '../components/files/file-rename-delete-modals'
 import { ViewModeToggle } from '../components/files/view-mode-toggle'
+import {
+  WorkspaceFolderActionsMenu,
+  WorkspaceToolbarMenuTrigger,
+  type WorkspaceFolderMenuState,
+} from '../components/workspaces/workspace-folder-menu'
+import { WorkspaceDeleteModal, WorkspaceRenameModal } from '../components/workspaces/workspace-modals'
 import { WorkspaceChatPanel } from '../components/workspace/workspace-chat-panel'
 import { deleteFile, fetchFileList, renameFile } from '../services/file-service'
 import {
   assignFileToWorkspace,
+  deleteWorkspace,
   fetchWorkspaces,
+  renameWorkspace,
   type WorkspaceItem,
 } from '../services/workspace-service'
 import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
+import { FILES_UPDATED_EVENT, type FilesUpdatedDetail } from '../lib/file-sync-events'
 import { routeMap } from '../lib/routes'
 import type { FileItem } from '../types/file'
 
@@ -28,6 +37,7 @@ function isUuid(value: string): boolean {
 }
 
 export function WorkspacePage() {
+  const navigate = useNavigate()
   const rawId = useParams().workspaceId ?? ''
   const workspaceId = rawId.trim()
   const setLinkImportWorkspaceId = useLinkImportWorkspaceStore(
@@ -43,6 +53,12 @@ export function WorkspacePage() {
   const [error, setError] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<FileItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
+  const [bulkDeleteFiles, setBulkDeleteFiles] = useState<FileItem[] | null>(null)
+  const [workspaceMenuState, setWorkspaceMenuState] = useState<WorkspaceFolderMenuState | null>(
+    null,
+  )
+  const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<WorkspaceItem | null>(null)
+  const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = useState<WorkspaceItem | null>(null)
 
   const load = useCallback(async () => {
     if (!isUuid(workspaceId)) {
@@ -92,6 +108,17 @@ export function WorkspacePage() {
     }
   }, [workspaceId, setLinkImportWorkspaceId])
 
+  useEffect(() => {
+    function onFilesUpdated(ev: Event) {
+      const detail = (ev as CustomEvent<FilesUpdatedDetail>).detail
+      if (!detail?.workspaceId || detail.workspaceId === workspaceId) {
+        void load()
+      }
+    }
+    window.addEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+    return () => window.removeEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+  }, [workspaceId, load])
+
   if (!isUuid(workspaceId)) {
     return (
       <div className="p-6">
@@ -132,6 +159,14 @@ export function WorkspacePage() {
     await load()
   }
 
+  async function handleBulkDeleteConfirm(items: FileItem[]) {
+    await Promise.all(items.map((f) => deleteFile(f.id)))
+    toast.success(
+      items.length === 1 ? 'File deleted' : `Deleted ${items.length} files`,
+    )
+    await load()
+  }
+
   async function handleMoveToWorkspace(file: FileItem, targetWorkspaceId: string | null) {
     try {
       await assignFileToWorkspace(file.id, targetWorkspaceId)
@@ -152,23 +187,45 @@ export function WorkspacePage() {
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
       <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-500">
-          <Link to={routeMap.files} className="hover:text-neutral-900">
-            Files
-          </Link>
-          <span aria-hidden>/</span>
-          <span className="font-medium text-neutral-900">{name}</span>
-          <span aria-hidden className="text-neutral-300">
-            |
-          </span>
-          <Link
-            to={routeMap.timelineWorkspace(workspaceId)}
-            className="hover:text-neutral-900"
-          >
-            Timeline
-          </Link>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex flex-1 flex-wrap items-center gap-2 text-sm text-neutral-500">
+            <Link to={routeMap.files} className="hover:text-neutral-900">
+              Files
+            </Link>
+            <span aria-hidden>/</span>
+            <span className="font-medium text-neutral-900" title={workspace?.name}>
+              {name}
+            </span>
+            <span aria-hidden className="text-neutral-300">
+              |
+            </span>
+            <Link
+              to={routeMap.timelineWorkspace(workspaceId)}
+              className="hover:text-neutral-900"
+            >
+              Timeline
+            </Link>
+          </div>
+          {workspace ? (
+            <WorkspaceToolbarMenuTrigger
+              workspace={workspace}
+              onOpen={setWorkspaceMenuState}
+            />
+          ) : null}
         </div>
       </div>
+
+      {workspace ? (
+        <WorkspaceFolderActionsMenu
+          state={workspaceMenuState}
+          onClose={() => setWorkspaceMenuState(null)}
+          workspacePath={(id) => routeMap.workspace(id)}
+          onRename={(ws) => setWorkspaceRenameTarget(ws)}
+          onDelete={(ws) => setWorkspaceDeleteTarget(ws)}
+          mode="workspace-toolbar"
+          onBackToFiles={() => navigate(routeMap.files)}
+        />
+      ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         <section className="flex min-h-0 min-w-0 flex-1 flex-col border-neutral-200 lg:border-r">
@@ -203,6 +260,8 @@ export function WorkspacePage() {
               onDeleteFile={(f) => setDeleteTarget(f)}
               workspaces={allWorkspaces}
               onMoveFileToWorkspace={handleMoveToWorkspace}
+              enableMultiSelect
+              onBulkDeleteRequest={(items) => setBulkDeleteFiles(items)}
             />
           </div>
         </aside>
@@ -211,10 +270,32 @@ export function WorkspacePage() {
       <FileRenameDeleteModals
         renameTarget={renameTarget}
         deleteTarget={deleteTarget}
+        bulkDeleteTargets={bulkDeleteFiles}
         onCloseRename={() => setRenameTarget(null)}
         onCloseDelete={() => setDeleteTarget(null)}
+        onCloseBulkDelete={() => setBulkDeleteFiles(null)}
         onRenameConfirm={handleRenameConfirm}
         onDeleteConfirm={handleDeleteConfirm}
+        onBulkDeleteConfirm={handleBulkDeleteConfirm}
+      />
+
+      <WorkspaceRenameModal
+        target={workspaceRenameTarget}
+        onClose={() => setWorkspaceRenameTarget(null)}
+        onConfirm={async (ws, newName) => {
+          await renameWorkspace(ws.id, newName)
+          toast.success('Workspace renamed')
+          await load()
+        }}
+      />
+      <WorkspaceDeleteModal
+        target={workspaceDeleteTarget}
+        onClose={() => setWorkspaceDeleteTarget(null)}
+        onConfirm={async (ws) => {
+          await deleteWorkspace(ws.id)
+          toast.success(`Workspace “${ws.name}” deleted`)
+          navigate(routeMap.files)
+        }}
       />
     </div>
   )

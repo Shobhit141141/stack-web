@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { env } from "../config/env.js";
 import * as embeddingService from "./embedding.service.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import * as searchRepository from "../repositories/search.repository.js";
@@ -10,6 +11,7 @@ import { searchApiPanel } from "../utils/search-log.util.js";
 const NEAREST_CHUNK_LIMIT = 30;
 const MAX_RESULTS = 10;
 const SNIPPET_MAX_CHARS = 400;
+const SEARCH_MIN_SCORE = 0.40;
 
 function truncateSnippet(text: string): string {
   const t = text.replace(/\s+/g, " ").trim();
@@ -72,12 +74,15 @@ export async function semanticSearchUserFiles(
   const vectorMs = performance.now() - tVec;
 
   const tAsm = performance.now();
+  const minScore = Math.max(SEARCH_MIN_SCORE, env.RAG_MIN_CHUNK_SCORE);
   const seen = new Map<string, { snippet: string; score: number }>();
   for (const row of chunks) {
     if (seen.has(row.contentId)) continue;
+    const score = Math.max(0, 1 - row.distance);
+    if (score < minScore) continue;
     seen.set(row.contentId, {
       snippet: truncateSnippet(row.content),
-      score: 1 / (1 + Math.max(row.distance, 0)),
+      score,
     });
     if (seen.size >= MAX_RESULTS) break;
   }

@@ -18,6 +18,15 @@ function sanitizePayloadText(text: string): string {
   return text.replace(/\u0000/g, "");
 }
 
+/** Qdrant REST / OpenAPI client: missing collection or nothing to delete */
+function isQdrantNotFoundError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const o = err as { status?: number; message?: string };
+  if (o.status === 404) return true;
+  if (typeof o.message === "string" && /not\s*found/i.test(o.message)) return true;
+  return false;
+}
+
 export class QdrantChunkVectorStore implements ChunkVectorStore {
   private readonly client: QdrantClient;
   private readonly collection: string;
@@ -32,7 +41,7 @@ export class QdrantChunkVectorStore implements ChunkVectorStore {
     this.collection = collection;
   }
 
-  // creates collection once if missing (euclid to mirror pgvector l2 / <->)
+  // creates collection once if missing; cosine distance for normalized similarity scores (0-1)
   private async ensureCollection(): Promise<void> {
     const cols = await this.client.getCollections();
     const exists = cols.collections.some((c) => c.name === this.collection);
@@ -40,7 +49,7 @@ export class QdrantChunkVectorStore implements ChunkVectorStore {
       await this.client.createCollection(this.collection, {
         vectors: {
           size: EMBEDDING_DIM,
-          distance: "Euclid",
+          distance: "Cosine",
         },
       });
     }
@@ -51,7 +60,7 @@ export class QdrantChunkVectorStore implements ChunkVectorStore {
         filePipelinePanel("FILE PIPELINE · qdrant · collection", "-", {
           collection: this.collection,
           vectorSize: EMBEDDING_DIM,
-          distance: "Euclid",
+          distance: "Cosine",
           created: exists ? "no" : "yes",
         })
       );
@@ -90,12 +99,26 @@ export class QdrantChunkVectorStore implements ChunkVectorStore {
 
   async deleteChunksForContent(contentId: string): Promise<void> {
     await this.ensureCollectionOnce();
-    await this.client.delete(this.collection, {
-      wait: true,
-      filter: {
-        must: [{ key: "content_id", match: { value: contentId } }],
-      },
-    });
+    try {
+      await this.client.delete(this.collection, {
+        wait: true,
+        filter: {
+          must: [{ key: "content_id", match: { value: contentId } }],
+        },
+      });
+    } catch (e) {
+      // e.g. collection dropped elsewhere, or Qdrant returns 404 for empty / unknown resource
+      if (isQdrantNotFoundError(e)) {
+        log.warn(
+          filePipelinePanel("FILE PIPELINE · qdrant · delete skipped", contentId, {
+            collection: this.collection,
+            reason: "not_found",
+          })
+        );
+        return;
+      }
+      throw e;
+    }
   }
 
   async replaceContentChunks(
@@ -199,11 +222,13 @@ export class QdrantChunkVectorStore implements ChunkVectorStore {
       if (!contentId || !Number.isFinite(chunkIndex)) {
         throw new Error("Qdrant hit missing content_id or chunk_index payload");
       }
+      // Qdrant Cosine: hit.score = cosine similarity (0-1, higher = more similar)
+      // Convert to distance for downstream compatibility (lower = more similar)
       return {
         contentId,
         content,
         chunkIndex,
-        distance: hit.score,
+        distance: 1 - hit.score,
       };
     });
   }

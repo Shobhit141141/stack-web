@@ -107,7 +107,7 @@ export const env = {
 
   RAG_MIN_CHUNK_SCORE: (() => {
     const x = Number(process.env.RAG_MIN_CHUNK_SCORE);
-    return Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0.08;
+    return Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0.35;
   })(),
 
   RAG_MAX_CONTEXT_CHARS: Math.min(

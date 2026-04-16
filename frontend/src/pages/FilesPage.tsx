@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
@@ -7,6 +7,7 @@ import { FileBrowserView } from '../components/files/file-browser-view'
 import { FileRenameDeleteModals } from '../components/files/file-rename-delete-modals'
 import { ViewModeToggle } from '../components/files/view-mode-toggle'
 import { WorkspaceFolderBrowser } from '../components/workspaces/workspace-folder-browser'
+import { WorkspaceDeleteModal, WorkspaceRenameModal } from '../components/workspaces/workspace-modals'
 import {
   fetchFileList,
   renameFile,
@@ -15,7 +16,9 @@ import {
 import {
   assignFileToWorkspace,
   createWorkspace,
+  deleteWorkspace,
   fetchWorkspaces,
+  renameWorkspace,
   type WorkspaceItem,
 } from '../services/workspace-service'
 import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
@@ -53,6 +56,14 @@ export function FilesPage() {
   const [createBusy, setCreateBusy] = useState(false)
   const [renameTarget, setRenameTarget] = useState<FileItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
+  const [bulkDeleteFiles, setBulkDeleteFiles] = useState<FileItem[] | null>(null)
+  const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<WorkspaceItem | null>(null)
+  const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = useState<WorkspaceItem | null>(null)
+
+  const workspaceNameById = useMemo(
+    () => new Map(workspaces.map((w) => [w.id, w.name] as const)),
+    [workspaces],
+  )
 
   const openFile = useOpenFile()
 
@@ -111,6 +122,14 @@ export function FilesPage() {
   async function handleDeleteConfirm(file: FileItem) {
     await deleteFile(file.id)
     toast.success('File deleted')
+    await loadFiles()
+  }
+
+  async function handleBulkDeleteConfirm(items: FileItem[]) {
+    await Promise.all(items.map((f) => deleteFile(f.id)))
+    toast.success(
+      items.length === 1 ? 'File deleted' : `Deleted ${items.length} files`,
+    )
     await loadFiles()
   }
 
@@ -197,17 +216,19 @@ export function FilesPage() {
           loading={workspacesLoading}
           view={folderView}
           workspaceHref={(id) => routeMap.workspace(id)}
+          onRenameWorkspace={(ws) => setWorkspaceRenameTarget(ws)}
+          onDeleteWorkspace={(ws) => setWorkspaceDeleteTarget(ws)}
         />
       </section>
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <section className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
           <Text size="4" weight="bold" className="text-neutral-900">
             All files
           </Text>
           <ViewModeToggle view={fileView} onChange={setFileView} />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Text size="2" weight="medium" className="mr-1 text-neutral-600">
             Show:
           </Text>
@@ -235,22 +256,29 @@ export function FilesPage() {
           </button>
         </div>
 
-        <FileBrowserView
-          files={files}
-          loading={loading}
-          error={error}
-          emptyMessage="No files match this filter. Upload files or open a workspace folder."
-          view={fileView}
-          dateStyle="relative"
-          onOpenFile={(f) => void openFile(f)}
-          onRenameFile={(f) => setRenameTarget(f)}
-          onDeleteFile={(f) => setDeleteTarget(f)}
-          workspaces={workspaces}
-          onMoveFileToWorkspace={handleMoveToWorkspace}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <FileBrowserView
+            files={files}
+            loading={loading}
+            error={error}
+            emptyMessage="No files match this filter. Upload files or open a workspace folder."
+            view={fileView}
+            dateStyle="relative"
+            onOpenFile={(f) => void openFile(f)}
+            onRenameFile={(f) => setRenameTarget(f)}
+            onDeleteFile={(f) => setDeleteTarget(f)}
+            workspaces={workspaces}
+            onMoveFileToWorkspace={handleMoveToWorkspace}
+            enableMultiSelect
+            showWorkspaceTags={filter.kind === 'all'}
+            workspaceNameById={workspaceNameById}
+            workspaceHref={(id) => routeMap.workspace(id)}
+            onBulkDeleteRequest={(items) => setBulkDeleteFiles(items)}
+          />
+        </div>
 
         {!loading && !error && total > files.length ? (
-          <Text size="1" color="gray">
+          <Text size="1" color="gray" className="shrink-0">
             Showing {files.length} of {total} files.
           </Text>
         ) : null}
@@ -259,10 +287,32 @@ export function FilesPage() {
       <FileRenameDeleteModals
         renameTarget={renameTarget}
         deleteTarget={deleteTarget}
+        bulkDeleteTargets={bulkDeleteFiles}
         onCloseRename={() => setRenameTarget(null)}
         onCloseDelete={() => setDeleteTarget(null)}
+        onCloseBulkDelete={() => setBulkDeleteFiles(null)}
         onRenameConfirm={handleRenameConfirm}
         onDeleteConfirm={handleDeleteConfirm}
+        onBulkDeleteConfirm={handleBulkDeleteConfirm}
+      />
+
+      <WorkspaceRenameModal
+        target={workspaceRenameTarget}
+        onClose={() => setWorkspaceRenameTarget(null)}
+        onConfirm={async (ws, newName) => {
+          await renameWorkspace(ws.id, newName)
+          toast.success('Workspace renamed')
+          await loadWorkspaces()
+        }}
+      />
+      <WorkspaceDeleteModal
+        target={workspaceDeleteTarget}
+        onClose={() => setWorkspaceDeleteTarget(null)}
+        onConfirm={async (ws) => {
+          await deleteWorkspace(ws.id)
+          toast.success(`Workspace “${ws.name}” deleted`)
+          await loadWorkspaces()
+        }}
       />
 
       {createOpen ? (

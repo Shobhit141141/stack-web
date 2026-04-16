@@ -8,6 +8,7 @@ import Dashboard from '@uppy/dashboard'
 import XHRUpload from '@uppy/xhr-upload'
 import { useUploadStore } from '../store/upload-store'
 import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-store'
+import { emitFilesUpdated } from '../lib/file-sync-events'
 import { getSupabase } from '../lib/supabase'
 import { createWorkspace, fetchWorkspaces } from '../services/workspace-service'
 import type { WorkspaceItem } from '../services/workspace-service'
@@ -39,6 +40,7 @@ export function UploadModal() {
   const uppyRef = useRef<Uppy | null>(null)
   const closeRef = useRef(close)
   closeRef.current = close
+  const selectedWorkspaceIdRef = useRef<string | null>(null)
 
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
@@ -96,6 +98,7 @@ export function UploadModal() {
     if (!isOpen) return
     const initial = useUploadStore.getState().defaultWorkspaceId
     setSelectedWorkspaceId(initial)
+    selectedWorkspaceIdRef.current = initial
     setLinkImportWorkspaceId(initial)
     setLinkUrl('')
   }, [isOpen, setLinkImportWorkspaceId])
@@ -147,6 +150,7 @@ export function UploadModal() {
       const ok = result.successful?.length ?? 0
       const failed = result.failed?.length ?? 0
       if (ok > 0) {
+        emitFilesUpdated({ workspaceId: selectedWorkspaceIdRef.current })
         toast.success(ok === 1 ? '1 file uploaded' : `${ok} files uploaded`)
       }
       if (failed > 0) {
@@ -202,6 +206,7 @@ export function UploadModal() {
 
   async function handleWorkspaceChange(next: string | null) {
     setSelectedWorkspaceId(next)
+    selectedWorkspaceIdRef.current = next
     setLinkImportWorkspaceId(next)
     await applyXhrOptions(next)
   }
@@ -252,6 +257,7 @@ export function UploadModal() {
     toast.promise(promise, {
       loading: 'Importing from link…',
       success: (r) => {
+        emitFilesUpdated({ workspaceId: selectedWorkspaceIdRef.current })
         setLinkUrl('')
         closeRef.current()
         return `Saved “${r.fileName}”`

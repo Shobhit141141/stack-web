@@ -27,8 +27,10 @@ const SNIPPET_MAX_CHARS = 400;
 const HISTORY_TURNS_MAX = 12;
 const HISTORY_MESSAGE_MAX_CHARS = 400;
 
+// cosine distance: 0 = identical, 1 = orthogonal, 2 = opposite
+// score = 1 - distance = cosine similarity (0-1)
 function distanceToScore(distance: number): number {
-  return 1 / (1 + Math.max(distance, 0));
+  return Math.max(0, 1 - distance);
 }
 
 function truncateSnippet(text: string): string {

@@ -1,6 +1,9 @@
 /** grid columns for file list rows (name, size, date columns) */
 export const FILE_LIST_GRID_TEMPLATE = 'minmax(0,1fr) 5rem 5rem'
 
+/** name, workspace chip column, size, date — ellipsis column added in component */
+export const FILE_LIST_GRID_WITH_WORKSPACE = 'minmax(0,1fr) minmax(5.5rem,10rem) 5rem 5rem'
+
 export function fileIcon(type: string): string {
   const t = type.toLowerCase()
   if (t.includes('pdf')) return '/icons/pdf.svg'

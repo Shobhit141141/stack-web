@@ -1,12 +1,14 @@
 import { Text } from '@radix-ui/themes'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import type { DragEvent } from 'react'
 import type { FileItem } from '../../types/file'
 import type { BrowserViewMode } from '../../hooks/use-browser-view-mode'
 import type { WorkspaceItem } from '../../services/workspace-service'
 import {
   FILE_LIST_GRID_TEMPLATE,
+  FILE_LIST_GRID_WITH_WORKSPACE,
   fileIcon,
   formatFileSize,
   formatRelativeTime,
@@ -32,6 +34,13 @@ type Props = {
     file: FileItem,
     workspaceId: string | null,
   ) => void | Promise<void>
+  /** ⌘/Ctrl+click to multi-select; toolbar offers bulk delete */
+  enableMultiSelect?: boolean
+  /** show workspace label column (e.g. All files on Files page) */
+  showWorkspaceTags?: boolean
+  workspaceNameById?: Map<string, string>
+  workspaceHref?: (workspaceId: string) => string
+  onBulkDeleteRequest?: (files: FileItem[]) => void
 }
 
 const FILE_DRAG_MIME = 'application/x-stack-file'
@@ -244,23 +253,45 @@ function formatDate(iso: string, style: DateStyle): string {
 function FileCardGrid({
   file,
   dateStyle,
-  onOpen,
   onMenu,
+  selected,
+  onMouseActivate,
+  onKeyActivate,
+  showWorkspaceTags,
+  workspaceLabel,
+  workspaceLinkTo,
 }: {
   file: FileItem
   dateStyle: DateStyle
-  onOpen: (f: FileItem) => void
   onMenu: (f: FileItem, x: number, y: number, snapRightTo?: number) => void
+  selected: boolean
+  onMouseActivate: (f: FileItem, e: React.MouseEvent) => void
+  onKeyActivate: (f: FileItem) => void
+  showWorkspaceTags: boolean
+  workspaceLabel: string | null
+  workspaceLinkTo: string | null
 }) {
+  const selText = selected ? 'text-red-600' : 'text-neutral-900'
+  const selMuted = selected ? 'text-red-600' : 'text-neutral-500'
+  const chipLink = selected
+    ? 'bg-red-50 font-medium text-red-700 ring-1 ring-red-200/80 hover:bg-red-100'
+    : 'bg-neutral-100 font-medium text-neutral-700 hover:bg-neutral-200'
+  const chipMuted = selected
+    ? 'bg-red-50 text-red-600 ring-1 ring-red-200/80'
+    : 'bg-neutral-50 text-neutral-400'
+  const menuBtn = selected
+    ? 'text-red-500 hover:bg-red-50 hover:text-red-700'
+    : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'
+
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onOpen(file)}
+      onClick={(e) => onMouseActivate(file, e)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onOpen(file)
+          onKeyActivate(file)
         }
       }}
       onContextMenu={(e) => {
@@ -273,7 +304,7 @@ function FileCardGrid({
     >
       <button
         type="button"
-        className="absolute top-2 right-2 rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+        className={`absolute top-2 right-2 rounded-md p-1 ${menuBtn}`}
         onClick={(e) => {
           e.stopPropagation()
           const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
@@ -291,15 +322,38 @@ function FileCardGrid({
       <div className="flex w-full flex-col gap-0.5 overflow-hidden">
         <Text
           size="2"
-          className="w-full truncate text-left text-neutral-900 transition-all duration-200 group-hover:font-semibold"
+          className={`w-full truncate text-left transition-all duration-200 group-hover:font-semibold ${selText}`}
         >
           {file.name}
         </Text>
-        <div className="flex items-center gap-1 text-xs text-neutral-500 transition-all duration-200 group-hover:font-semibold">
+        <div
+          className={`flex items-center gap-1 text-xs transition-all duration-200 group-hover:font-semibold ${selMuted}`}
+        >
           <span>{formatFileSize(file.size)}</span>
           <span>&middot;</span>
           <span>{formatDate(file.createdAt, dateStyle)}</span>
         </div>
+        {showWorkspaceTags ? (
+          <div className="min-w-0 text-xs">
+            {workspaceLinkTo ? (
+              <Link
+                to={workspaceLinkTo}
+                onClick={(e) => e.stopPropagation()}
+                className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
+                title={workspaceLabel ?? undefined}
+              >
+                {workspaceLabel}
+              </Link>
+            ) : (
+              <span
+                className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
+                title="Not in a workspace"
+              >
+                {workspaceLabel ?? 'No workspace'}
+              </span>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -308,23 +362,47 @@ function FileCardGrid({
 function FileRowList({
   file,
   dateStyle,
-  onOpen,
   onMenu,
+  listGridTemplate,
+  selected,
+  onMouseActivate,
+  onKeyActivate,
+  showWorkspaceTags,
+  workspaceLabel,
+  workspaceLinkTo,
 }: {
   file: FileItem
   dateStyle: DateStyle
-  onOpen: (f: FileItem) => void
   onMenu: (f: FileItem, x: number, y: number, snapRightTo?: number) => void
+  listGridTemplate: string
+  selected: boolean
+  onMouseActivate: (f: FileItem, e: React.MouseEvent) => void
+  onKeyActivate: (f: FileItem) => void
+  showWorkspaceTags: boolean
+  workspaceLabel: string | null
+  workspaceLinkTo: string | null
 }) {
+  const selText = selected ? 'text-red-600' : 'text-neutral-900'
+  const selMuted = selected ? 'text-red-600' : 'text-neutral-500'
+  const chipLink = selected
+    ? 'bg-red-50 text-xs font-medium text-red-700 ring-1 ring-red-200/80 hover:bg-red-100'
+    : 'bg-neutral-100 text-xs font-medium text-neutral-700 hover:bg-neutral-200'
+  const chipMuted = selected
+    ? 'bg-red-50 text-xs text-red-600 ring-1 ring-red-200/80'
+    : 'bg-neutral-50 text-xs text-neutral-400'
+  const menuBtn = selected
+    ? 'text-red-500 hover:bg-red-50 hover:text-red-700'
+    : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'
+
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onOpen(file)}
+      onClick={(e) => onMouseActivate(file, e)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          onOpen(file)
+          onKeyActivate(file)
         }
       }}
       onContextMenu={(e) => {
@@ -334,32 +412,53 @@ function FileRowList({
       draggable
       onDragStart={(ev) => onDragStartFile(ev, file)}
       className="group grid w-full cursor-pointer items-center rounded-lg bg-white px-0 py-3 text-left transition-colors"
-      style={{ gridTemplateColumns: `${FILE_LIST_GRID_TEMPLATE} 28px`, gap: '1rem' }}
+      style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
     >
       <div className="flex min-w-0 items-center gap-3">
         <img src={fileIcon(file.type)} alt="" className="h-8 w-8 shrink-0" />
         <Text
           size="2"
-          className="min-w-0 truncate text-neutral-900 transition-all duration-200 group-hover:font-semibold"
+          className={`min-w-0 truncate transition-all duration-200 group-hover:font-semibold ${selText}`}
         >
           {file.name}
         </Text>
       </div>
+      {showWorkspaceTags ? (
+        <div className="min-w-0 justify-self-start">
+          {workspaceLinkTo ? (
+            <Link
+              to={workspaceLinkTo}
+              onClick={(e) => e.stopPropagation()}
+              className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
+              title={workspaceLabel ?? undefined}
+            >
+              {workspaceLabel}
+            </Link>
+          ) : (
+            <span
+              className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
+              title="Not in a workspace"
+            >
+              {workspaceLabel ?? 'No workspace'}
+            </span>
+          )}
+        </div>
+      ) : null}
       <Text
         size="1"
-        className="text-neutral-500 transition-all duration-200 group-hover:font-bold"
+        className={`transition-all duration-200 group-hover:font-bold ${selMuted}`}
       >
         {formatFileSize(file.size)}
       </Text>
       <Text
         size="1"
-        className="justify-self-end text-right text-neutral-500 transition-all duration-200 group-hover:font-bold"
+        className={`justify-self-end text-right transition-all duration-200 group-hover:font-bold ${selMuted}`}
       >
         {formatDate(file.createdAt, dateStyle)}
       </Text>
       <button
         type="button"
-        className="justify-self-end rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+        className={`justify-self-end rounded-md p-1 ${menuBtn}`}
         onClick={(e) => {
           e.stopPropagation()
           const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
@@ -385,12 +484,116 @@ export function FileBrowserView({
   onDeleteFile,
   workspaces,
   onMoveFileToWorkspace,
+  enableMultiSelect = false,
+  showWorkspaceTags = false,
+  workspaceNameById,
+  workspaceHref,
+  onBulkDeleteRequest,
 }: Props) {
   const [menuState, setMenuState] = useState<FileActionsMenuState | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+
+  const listGridTemplate = showWorkspaceTags
+    ? FILE_LIST_GRID_WITH_WORKSPACE
+    : FILE_LIST_GRID_TEMPLATE
 
   function openMenu(file: FileItem, x: number, y: number, snapRightTo?: number) {
     setMenuState({ file, x, y, snapRightTo })
   }
+
+  function workspaceMeta(file: FileItem): {
+    label: string | null
+    linkTo: string | null
+  } {
+    if (!file.workspaceId) {
+      return { label: 'No workspace', linkTo: null }
+    }
+    const name = workspaceNameById?.get(file.workspaceId) ?? 'Workspace'
+    const linkTo = workspaceHref ? workspaceHref(file.workspaceId) : null
+    return { label: name, linkTo }
+  }
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleMouseActivate = useCallback(
+    (file: FileItem, e: React.MouseEvent) => {
+      if (enableMultiSelect && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        toggleSelect(file.id)
+        return
+      }
+      if (enableMultiSelect && selectedIds.size > 0) {
+        setSelectedIds(new Set())
+      }
+      onOpenFile(file)
+    },
+    [enableMultiSelect, onOpenFile, selectedIds.size, toggleSelect],
+  )
+
+  const handleKeyActivate = useCallback(
+    (file: FileItem) => {
+      if (enableMultiSelect && selectedIds.size > 0) {
+        setSelectedIds(new Set())
+      }
+      onOpenFile(file)
+    },
+    [enableMultiSelect, onOpenFile, selectedIds.size],
+  )
+
+  useEffect(() => {
+    const valid = new Set(files.map((f) => f.id))
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev
+      const next = new Set([...prev].filter((id) => valid.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [files])
+
+  useEffect(() => {
+    if (!enableMultiSelect || selectedIds.size === 0) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setSelectedIds(new Set())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [enableMultiSelect, selectedIds.size])
+
+  const selectionToolbar =
+    enableMultiSelect && selectedIds.size > 0 ? (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+        <span className="text-sm font-medium text-neutral-800">
+          {selectedIds.size} selected
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-sm font-medium text-neutral-600 hover:bg-neutral-200/80"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            Clear
+          </button>
+          {onBulkDeleteRequest ? (
+            <button
+              type="button"
+              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+              onClick={() => {
+                const selected = files.filter((f) => selectedIds.has(f.id))
+                if (selected.length) onBulkDeleteRequest(selected)
+              }}
+            >
+              Delete…
+            </button>
+          ) : null}
+        </div>
+      </div>
+    ) : null
 
   if (loading) {
     return view === 'grid' ? (
@@ -401,6 +604,7 @@ export function FileBrowserView({
             <div className="flex w-full flex-col items-center gap-1">
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-3 w-1/2" />
+              {showWorkspaceTags ? <Skeleton className="h-3 w-20" /> : null}
             </div>
           </div>
         ))}
@@ -409,9 +613,10 @@ export function FileBrowserView({
       <div className="flex flex-col gap-2">
         <div
           className="grid items-center px-0 pb-1"
-          style={{ gridTemplateColumns: `${FILE_LIST_GRID_TEMPLATE} 28px`, gap: '1rem' }}
+          style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
         >
           <Skeleton className="h-3 w-10" />
+          {showWorkspaceTags ? <Skeleton className="h-3 w-16" /> : null}
           <Skeleton className="h-3 w-10" />
           <Skeleton className="h-3 w-14 justify-self-end" />
           <Skeleton className="h-3 w-5 justify-self-end" />
@@ -420,12 +625,13 @@ export function FileBrowserView({
           <div
             key={i}
             className="grid items-center rounded-lg bg-white px-0 py-3"
-            style={{ gridTemplateColumns: `${FILE_LIST_GRID_TEMPLATE} 28px`, gap: '1rem' }}
+            style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
           >
             <div className="flex items-center gap-3">
               <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
               <Skeleton className="h-4 w-3/4" />
             </div>
+            {showWorkspaceTags ? <Skeleton className="h-3 w-20" /> : null}
             <Skeleton className="h-3 w-14" />
             <Skeleton className="h-3 w-14 justify-self-end" />
             <Skeleton className="h-3 w-5 justify-self-end" />
@@ -453,51 +659,75 @@ export function FileBrowserView({
 
   if (view === 'grid') {
     return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
-        {files.map((f) => (
-          <FileCardGrid
-            key={f.id}
-            file={f}
-            dateStyle={dateStyle}
+      <div className="flex flex-col gap-3">
+        {selectionToolbar}
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+          {files.map((f) => {
+            const { label, linkTo } = workspaceMeta(f)
+            return (
+              <FileCardGrid
+                key={f.id}
+                file={f}
+                dateStyle={dateStyle}
+                onMenu={openMenu}
+                selected={selectedIds.has(f.id)}
+                onMouseActivate={handleMouseActivate}
+                onKeyActivate={handleKeyActivate}
+                showWorkspaceTags={showWorkspaceTags}
+                workspaceLabel={label}
+                workspaceLinkTo={linkTo}
+              />
+            )
+          })}
+          <FileActionsMenu
+            state={menuState}
+            onClose={() => setMenuState(null)}
             onOpen={onOpenFile}
-            onMenu={openMenu}
+            onRename={onRenameFile}
+            onDelete={onDeleteFile}
+            workspaces={workspaces}
+            onMoveFileToWorkspace={onMoveFileToWorkspace}
           />
-        ))}
-        <FileActionsMenu
-          state={menuState}
-          onClose={() => setMenuState(null)}
-          onOpen={onOpenFile}
-          onRename={onRenameFile}
-          onDelete={onDeleteFile}
-          workspaces={workspaces}
-          onMoveFileToWorkspace={onMoveFileToWorkspace}
-        />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-2">
+      {selectionToolbar}
       <div
         className="grid items-center px-0 pb-1"
-        style={{ gridTemplateColumns: `${FILE_LIST_GRID_TEMPLATE} 28px`, gap: '1rem' }}
+        style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
       >
         <span className="text-left text-xs font-medium text-neutral-400">Name</span>
+        {showWorkspaceTags ? (
+          <span className="text-left text-xs font-medium text-neutral-400">Workspace</span>
+        ) : null}
         <span className="text-left text-xs font-medium text-neutral-400">Size</span>
         <span className="justify-self-end text-right text-xs font-medium text-neutral-400">
           {dateStyle === 'short' ? 'Added' : 'Uploaded'}
         </span>
         <span />
       </div>
-      {files.map((f) => (
-        <FileRowList
-          key={f.id}
-          file={f}
-          dateStyle={dateStyle}
-          onOpen={onOpenFile}
-          onMenu={openMenu}
-        />
-      ))}
+      {files.map((f) => {
+        const { label, linkTo } = workspaceMeta(f)
+        return (
+          <FileRowList
+            key={f.id}
+            file={f}
+            dateStyle={dateStyle}
+            onMenu={openMenu}
+            listGridTemplate={listGridTemplate}
+            selected={selectedIds.has(f.id)}
+            onMouseActivate={handleMouseActivate}
+            onKeyActivate={handleKeyActivate}
+            showWorkspaceTags={showWorkspaceTags}
+            workspaceLabel={label}
+            workspaceLinkTo={linkTo}
+          />
+        )
+      })}
       <FileActionsMenu
         state={menuState}
         onClose={() => setMenuState(null)}

@@ -55,11 +55,6 @@ export async function renameWorkspace(
   };
 }
 
-export async function deleteWorkspace(userId: string, workspaceId: string) {
-  const ok = await workspaceRepository.deleteWorkspace(workspaceId, userId);
-  if (!ok) throw new HttpError(404, "Workspace not found");
-}
-
 // throws 404 if workspace is missing or not owned by user
 export async function assertWorkspaceOwned(
   userId: string,
