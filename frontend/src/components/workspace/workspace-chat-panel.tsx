@@ -128,7 +128,7 @@ function buildAskQuery(userText: string, fileNames: string[]): string {
 function AssistantTypingRow() {
   return (
     <div
-      className="mr-auto flex max-w-[min(100%,42rem)] items-center gap-1 rounded-xl pr-4 pl-2 py-3"
+      className="mr-auto flex max-w-[min(100%,42rem)] items-center gap-1 rounded-xl border-0 py-3 pl-2 pr-4 shadow-none outline-none"
       aria-live="polite"
     >
       <span className="sr-only">Assistant is typing</span>
@@ -136,7 +136,7 @@ function AssistantTypingRow() {
         {[0, 150, 300].map((delayMs) => (
           <span
             key={delayMs}
-            className="h-1 w-1 rounded-full bg-black motion-safe:animate-bounce"
+            className="h-1.5 w-1.5 rounded-full bg-neutral-400 motion-safe:animate-bounce"
             style={{ animationDelay: `${delayMs}ms` }}
           />
         ))}
@@ -183,6 +183,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   useEffect(() => {
     let cancelled = false
     setHydrating(true)
+    setSending(false)
     setTurns([])
     setConversationId(null)
     ;(async () => {
@@ -210,6 +211,11 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       cancelled = true
     }
   }, [workspaceId])
+
+  const showAssistantTyping =
+    sending &&
+    !hydrating &&
+    turns.at(-1)?.role === 'user'
 
   const filteredMentionFiles = useMemo(() => {
     const f = mentionFilter.trim().toLowerCase()
@@ -413,7 +419,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
             </div>
           ))
         )}
-        {sending ? <AssistantTypingRow /> : null}
+        {!showAssistantTyping ? <AssistantTypingRow /> : null}
       </div>
 
       <form

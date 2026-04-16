@@ -173,11 +173,7 @@ export function VoiceSessionOverlay({
               <p className="min-h-5 text-xs text-white/65 transition-opacity duration-300">
                 {connectingLine}
               </p>
-              {connectSlow ? (
-                <p className="text-xs leading-snug text-amber-200/90">
-                  Still waiting — allow microphone access if prompted, or check VPN / network.
-                </p>
-              ) : null}
+            
             </div>
           ) : null}
 
