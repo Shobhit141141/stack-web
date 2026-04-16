@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import toast from 'react-hot-toast'
 import VapiModule from '@vapi-ai/web'
 
@@ -10,12 +10,7 @@ import {
   stripStackMetaFromTranscript,
 } from '../lib/stack-voice-meta'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
-import { deleteFile, fetchFileSignedUrl } from '../services/file-service'
-import {
-  assignFileToWorkspace,
-  fetchWorkspaces,
-  type WorkspaceItem,
-} from '../services/workspace-service'
+import { deleteFile, downloadFileBlob } from '../services/file-service'
 import {
   formatVapiConnectStage,
   VAPI_CONNECT_SLOW_HINT_MS,
@@ -37,6 +32,32 @@ export type VoiceTurn = {
 export type VoiceReferredFile = {
   fileId: string
   fileName: string
+}
+
+function applyStackMetaFromText(
+  text: unknown,
+  setReferredFiles: Dispatch<SetStateAction<VoiceReferredFile[]>>,
+  label: string,
+) {
+  if (typeof text !== 'string' || !text.trim()) return
+  const { meta } = processAssistantVoiceText(text)
+  console.log(`[voice] ${label} parsed meta:`, meta)
+  console.log(`[voice] ${label} sources count:`, meta?.sources?.length ?? 0)
+  if (meta?.sources?.length) {
+    setReferredFiles(meta.sources)
+    console.log(`[voice] referredFiles set from ${label}:`, meta.sources)
+  }
+}
+
+function removeDeletedFileFromRefs(
+  text: unknown,
+  setReferredFiles: Dispatch<SetStateAction<VoiceReferredFile[]>>,
+) {
+  if (typeof text !== 'string') return
+  const m = text.match(/^Deleted\s+(.+)\.$/i)
+  if (!m?.[1]) return
+  const deletedName = m[1].trim().toLowerCase()
+  setReferredFiles((prev) => prev.filter((f) => f.fileName.toLowerCase() !== deletedName))
 }
 
 function extractModelOutputChunk(
@@ -96,22 +117,17 @@ export function useVapi(options?: { workspaceId?: string }) {
   const [assistantTokenLive, setAssistantTokenLive] = useState('')
   const [turns, setTurns] = useState<VoiceTurn[]>([])
   const [referredFiles, setReferredFiles] = useState<VoiceReferredFile[]>([])
-  const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([])
   const [connectStage, setConnectStage] = useState('')
   const [connectSlow, setConnectSlow] = useState(false)
   const [lastConnectError, setLastConnectError] = useState<string | null>(null)
 
   const vapiRef = useRef<InstanceType<typeof Vapi> | null>(null)
   const referredFilesRef = useRef<VoiceReferredFile[]>([])
-  const workspacesRef = useRef<WorkspaceItem[]>([])
 
   useEffect(() => {
     referredFilesRef.current = referredFiles
   }, [referredFiles])
 
-  useEffect(() => {
-    workspacesRef.current = workspaces
-  }, [workspaces])
   const assistantTokenAccRef = useRef('')
   const sessionAliveRef = useRef(false)
   const connectTimersRef = useRef<{
@@ -134,8 +150,16 @@ export function useVapi(options?: { workspaceId?: string }) {
 
   const downloadReferredFile = useCallback(async (fileId: string) => {
     try {
-      const url = await fetchFileSignedUrl(fileId)
-      window.open(url, '_blank', 'noopener,noreferrer')
+      const { blob, fileName } = await downloadFileBlob(fileId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName ?? 'file'
+      a.rel = 'noopener noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
       toast.success('Download started')
     } catch {
       toast.error('Could not download')
@@ -152,20 +176,17 @@ export function useVapi(options?: { workspaceId?: string }) {
     }
   }, [])
 
-  const moveReferredFile = useCallback(
-    async (fileId: string, workspaceId: string | null) => {
-      try {
-        await assignFileToWorkspace(fileId, workspaceId)
-        const label = workspaceId
-          ? workspacesRef.current.find((w) => w.id === workspaceId)?.name ?? 'workspace'
-          : 'Unassigned'
-        toast.success(`Moved to ${label}`)
-      } catch {
-        toast.error('Could not move file')
-      }
-    },
-    [],
-  )
+  const copyReferredFile = useCallback(async (fileId: string) => {
+    try {
+      const { blob } = await downloadFileBlob(fileId)
+      const url = URL.createObjectURL(blob)
+      await navigator.clipboard.writeText(url)
+      toast.success('Copied file link')
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch {
+      toast.error('Could not copy link')
+    }
+  }, [])
 
   const runVoiceFileCommand = useCallback(
     async (utterance: string) => {
@@ -173,9 +194,9 @@ export function useVapi(options?: { workspaceId?: string }) {
       const files = referredFilesRef.current
       if (files.length === 0) return
       const wantsDl = /\b(download|save)\b/.test(u)
+      const wantsCopy = /\b(copy|clipboard)\b/.test(u)
       const wantsDel = /\b(delete|remove|trash)\b/.test(u)
-      const wantsMove = /\bmove\b/.test(u) && /\bto\b/.test(u)
-      if (!wantsDl && !wantsDel && !wantsMove) return
+      if (!wantsDl && !wantsCopy && !wantsDel) return
 
       let file = files[0]!
       if (files.length > 1) {
@@ -193,34 +214,16 @@ export function useVapi(options?: { workspaceId?: string }) {
         await downloadReferredFile(file.fileId)
         return
       }
+      if (wantsCopy) {
+        await copyReferredFile(file.fileId)
+        return
+      }
       if (wantsDel) {
         await deleteReferredFile(file.fileId, file.fileName)
         return
       }
-      const m =
-        u.match(/\bto\s+(.+?)(?:\.|$)/i) ?? u.match(/\binto\s+(.+?)(?:\.|$)/i)
-      const hint = m?.[1]?.trim().replace(/[.!?]+$/, '') ?? ''
-      if (!hint) {
-        toast.error('Say where to move, e.g. move to Design.')
-        return
-      }
-      const wss = workspacesRef.current
-      const exact = wss.find((w) => w.name.toLowerCase() === hint.toLowerCase())
-      const partial = wss.filter((w) =>
-        w.name.toLowerCase().includes(hint.toLowerCase()),
-      )
-      const ws = exact ?? (partial.length === 1 ? partial[0]! : null)
-      if (!ws) {
-        toast.error(
-          partial.length > 1
-            ? 'Which workspace? Say the full name.'
-            : 'Workspace not found.',
-        )
-        return
-      }
-      await moveReferredFile(file.fileId, ws.id)
     },
-    [deleteReferredFile, downloadReferredFile, moveReferredFile],
+    [copyReferredFile, deleteReferredFile, downloadReferredFile],
   )
 
   useEffect(() => {
@@ -242,7 +245,6 @@ export function useVapi(options?: { workspaceId?: string }) {
       setAssistantTokenLive('')
       sessionAliveRef.current = true
       setReferredFiles([])
-      void fetchWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]))
       sendStackFileToolSessionHint(vapi)
     })
 
@@ -271,6 +273,35 @@ export function useVapi(options?: { workspaceId?: string }) {
     })
 
     vapi.on('message', (msg: any) => {
+      console.log('[voice] raw vapi message', msg)
+
+      // Vapi may deliver tool results separately from assistant transcript.
+      // Parse STACK_META from tool_call_result so referenced files always reach UI.
+      if (msg?.role === 'tool_call_result' && typeof msg.result === 'string') {
+        applyStackMetaFromText(msg.result, setReferredFiles, 'tool_call_result')
+        removeDeletedFileFromRefs(msg.result, setReferredFiles)
+      }
+
+      // Some Vapi transports emit finalized tool outputs in conversation-update payloads.
+      if (msg?.type === 'conversation-update') {
+        const candidates: unknown[] = []
+        if (Array.isArray(msg.messages)) candidates.push(...msg.messages)
+        if (Array.isArray(msg.conversation)) candidates.push(...msg.conversation)
+        for (const item of candidates) {
+          if (!item || typeof item !== 'object') continue
+          const o = item as Record<string, unknown>
+          if (o.role === 'tool_call_result') {
+            applyStackMetaFromText(o.result, setReferredFiles, 'conversation-update.tool_call_result')
+            removeDeletedFileFromRefs(o.result, setReferredFiles)
+            continue
+          }
+          // OpenAI-style tool message shape
+          if (o.role === 'tool') {
+            applyStackMetaFromText(o.content, setReferredFiles, 'conversation-update.tool')
+          }
+        }
+      }
+
       if (msg?.type === 'model-output' && msg.output != null) {
         const chunk = extractModelOutputChunk(msg.output)
         if (chunk) {
@@ -323,12 +354,16 @@ export function useVapi(options?: { workspaceId?: string }) {
           setAssistantMessage(text)
           if (text.trim()) {
             const { displayText, meta } = processAssistantVoiceText(text.trim())
+            console.log('[voice] assistant final raw:', text)
+            console.log('[voice] parsed stack meta:', meta)
+            console.log('[voice] sources count:', meta?.sources?.length ?? 0)
             setTurns((prev) => [
               ...prev,
               { id: crypto.randomUUID(), role: 'assistant', text: displayText },
             ])
             if (meta?.sources?.length) {
               setReferredFiles(meta.sources)
+              console.log('[voice] referredFiles set:', meta.sources)
             }
             if (meta?.clientAction?.type === 'openUrl' && meta.clientAction.url) {
               window.open(meta.clientAction.url, '_blank', 'noopener,noreferrer')
@@ -450,7 +485,6 @@ export function useVapi(options?: { workspaceId?: string }) {
     assistantTokenAccRef.current = ''
     setAssistantTokenLive('')
     setReferredFiles([])
-    setWorkspaces([])
     setStatus('idle')
   }, [clearConnectTimers])
 
@@ -471,7 +505,6 @@ export function useVapi(options?: { workspaceId?: string }) {
     assistantTokenLive,
     turns,
     referredFiles,
-    workspaces,
     connectStage,
     connectSlow,
     lastConnectError,
@@ -482,7 +515,7 @@ export function useVapi(options?: { workspaceId?: string }) {
     stop,
     toggle,
     downloadReferredFile,
+    copyReferredFile,
     deleteReferredFile,
-    moveReferredFile,
   }
 }

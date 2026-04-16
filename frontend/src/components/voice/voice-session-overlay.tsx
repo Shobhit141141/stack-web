@@ -2,13 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   HiOutlineArrowDownTray,
-  HiOutlineFolderArrowDown,
+  HiOutlineDocumentDuplicate,
   HiOutlineMicrophone,
   HiOutlineTrash,
   HiOutlineXMark,
 } from 'react-icons/hi2'
 import type { VapiStatus, VoiceReferredFile, VoiceTurn } from '../../hooks/use-vapi'
-import type { WorkspaceItem } from '../../services/workspace-service'
 
 type Props = {
   status: VapiStatus
@@ -17,12 +16,10 @@ type Props = {
   assistantStreaming: boolean
   turns: VoiceTurn[]
   referredFiles: VoiceReferredFile[]
-  workspaces: WorkspaceItem[]
-  connectSlow: boolean
   onEnd: () => void
   onDownloadFile: (fileId: string) => void
+  onCopyFileLink: (fileId: string) => void
   onDeleteFile: (fileId: string, fileName: string) => void
-  onMoveFile: (fileId: string, workspaceId: string | null) => void
 }
 
 const CONNECTING_CHATTER = [
@@ -59,16 +56,13 @@ export function VoiceSessionOverlay({
   assistantStreaming,
   turns,
   referredFiles,
-  workspaces,
-  connectSlow,
   onEnd,
   onDownloadFile,
+  onCopyFileLink,
   onDeleteFile,
-  onMoveFile,
 }: Props) {
   const isConnecting = status === 'connecting'
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [moveTargetByFile, setMoveTargetByFile] = useState<Record<string, string>>({})
   const [connectingLine, setConnectingLine] = useState(() => pickRandomConnectingLine())
 
   useEffect(() => {
@@ -235,7 +229,7 @@ export function VoiceSessionOverlay({
                 Referenced files
               </p>
               <p className="mb-3 text-xs leading-snug text-white/60">
-                Say “download”, “delete”, or “move to … workspace”, or use the actions below.
+                Say “download”, “copy link”, or “delete”, or use the actions below.
               </p>
               <ul className="flex flex-col gap-3">
                 {referredFiles.map((f) => (
@@ -257,6 +251,14 @@ export function VoiceSessionOverlay({
                       </button>
                       <button
                         type="button"
+                        onClick={() => onCopyFileLink(f.fileId)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/15"
+                      >
+                        <HiOutlineDocumentDuplicate className="size-3.5" aria-hidden />
+                        Copy link
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => {
                           if (
                             typeof window !== 'undefined' &&
@@ -270,44 +272,6 @@ export function VoiceSessionOverlay({
                         <HiOutlineTrash className="size-3.5" aria-hidden />
                         Delete
                       </button>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <HiOutlineFolderArrowDown
-                          className="size-3.5 text-white/50"
-                          aria-hidden
-                        />
-                        <select
-                          aria-label={`Move ${f.fileName}`}
-                          className="max-w-[200px] rounded-lg border border-white/20 bg-neutral-950/60 px-2 py-1.5 text-xs text-white/90 outline-none focus:ring-1 focus:ring-violet-400/60"
-                          value={moveTargetByFile[f.fileId] ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setMoveTargetByFile((prev) => ({ ...prev, [f.fileId]: v }))
-                          }}
-                        >
-                          <option value="">Move to…</option>
-                          <option value="__unassigned__">Unassigned</option>
-                          {workspaces.map((w) => (
-                            <option key={w.id} value={w.id}>
-                              {w.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          disabled={!moveTargetByFile[f.fileId]}
-                          onClick={() => {
-                            const v = moveTargetByFile[f.fileId]
-                            if (!v) return
-                            onMoveFile(
-                              f.fileId,
-                              v === '__unassigned__' ? null : v,
-                            )
-                          }}
-                          className="rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 enabled:hover:bg-white/15 disabled:opacity-40"
-                        >
-                          Move
-                        </button>
-                      </div>
                     </div>
                   </li>
                 ))}

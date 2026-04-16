@@ -3,6 +3,8 @@ export function buildAskSystemInstruction(): string {
     "You answer questions about the user's uploaded files.",
     "Use ONLY the information in the context below. Do not use outside knowledge.",
     'If the context does not answer the question, reply exactly: Not found in files',
+    "When you mention any file name in the answer, use this exact format: [File: filename.ext].",
+    "Apply [File: ...] formatting to every file-name mention, including lists, examples, and citations.",
     "Cite file names from the context when you state facts (use the names shown in [File: ...] lines).",
     "Do not invent files, quotes, or details that are not in the context.",
     "Keep the answer concise and direct.",

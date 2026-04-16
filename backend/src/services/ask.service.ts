@@ -51,6 +51,49 @@ function trimMessageForHistory(content: string): string {
   return `${v.slice(0, HISTORY_MESSAGE_MAX_CHARS)}…`;
 }
 
+function normalizeFileBracketMentions(answer: string): string {
+  // keep parser-friendly [File: name] tokens by removing markdown wrappers.
+  return answer
+    .replace(/\*\*(\[File:\s*[^\]]+\])\*\*/g, "$1")
+    .replace(/\*(\[File:\s*[^\]]+\])\*/g, "$1")
+    .replace(/`(\[File:\s*[^\]]+\])`/g, "$1");
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function enforceFileBracketMentionsForSourceNames(
+  answer: string,
+  sourceFileNames: string[]
+): string {
+  let out = answer;
+  const protectedTags: string[] = [];
+  out = out.replace(/\[File:\s*[^\]]+\]/g, (m) => {
+    const token = `__FILE_TAG_${protectedTags.length}__`;
+    protectedTags.push(m);
+    return token;
+  });
+
+  const names = [...new Set(sourceFileNames.map((n) => n.trim()).filter(Boolean))];
+  for (const name of names) {
+    const escaped = escapeRegex(name);
+    // first normalize @name -> [File: name]
+    const atRe = new RegExp(`@${escaped}(?=$|[^\\w])`, "g");
+    out = out.replace(atRe, `[File: ${name}]`);
+    // then replace bare filename mentions while preserving boundaries.
+    const re = new RegExp(`(^|[^\\w\\]])(${escaped})(?=$|[^\\w])`, "g");
+    out = out.replace(re, (_m, p1: string, p2: string) => `${p1}[File: ${p2}]`);
+  }
+
+  out = out.replace(/__FILE_TAG_(\d+)__/g, (_m, idx: string) => {
+    const i = Number(idx);
+    return Number.isFinite(i) && protectedTags[i] ? protectedTags[i]! : _m;
+  });
+
+  return out;
+}
+
 function isNotFoundStyleAnswer(answer: string): boolean {
   const v = answer.trim().toLowerCase();
   if (!v) return true;
@@ -601,7 +644,7 @@ export async function askUserFiles(params: {
   if (!trimmed) {
     answer = "Not found in files";
   } else {
-    answer = trimmed;
+    answer = normalizeFileBracketMentions(trimmed);
   }
 
   const sources: AskSource[] = [];
@@ -624,6 +667,13 @@ export async function askUserFiles(params: {
       fileNames.length === 1
         ? `I found relevant content in ${fileNames[0]}.`
         : `I found relevant content in ${fileNames.join(", ")}.`;
+  }
+
+  if (sources.length > 0) {
+    answer = enforceFileBracketMentionsForSourceNames(
+      answer,
+      sources.map((s) => s.fileName)
+    );
   }
 
   logRagDebug({

@@ -207,6 +207,53 @@ export async function getFileById(
   }
 }
 
+function safeAttachmentFileName(name: string): string {
+  return name.replace(/[\r\n"]/g, "_").trim() || "file";
+}
+
+export async function downloadFileByIdAttachment(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  const token = req.accessToken;
+  if (!userId || !token) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const rawId = req.params.id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  if (!id || !isUuid(id)) {
+    res.status(400).json({ error: "Invalid file id" });
+    return;
+  }
+  try {
+    const result = await fileService.getUserFileWithSignedUrl({
+      accessToken: token,
+      userId,
+      fileId: id,
+    });
+    const upstream = await fetch(result.signedUrl);
+    if (!upstream.ok) {
+      res.status(502).json({ error: "Could not fetch file bytes for download" });
+      return;
+    }
+    const bytes = Buffer.from(await upstream.arrayBuffer());
+    const contentType =
+      upstream.headers.get("content-type") || "application/octet-stream";
+    const fileName = safeAttachmentFileName(result.name);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+    );
+    res.status(200).send(bytes);
+  } catch (e) {
+    next(e);
+  }
+}
+
 const MAX_URL_LENGTH = 2048;
 
 export async function getUrlIngestJobStatus(

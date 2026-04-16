@@ -37,6 +37,27 @@ export async function fetchFileSignedUrl(fileId: string): Promise<string> {
   return body.signedUrl
 }
 
+function filenameFromContentDisposition(header: string | null): string | undefined {
+  if (!header) return undefined
+  const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1])
+    } catch {
+      // ignore decode failures
+    }
+  }
+  const ascii = header.match(/filename="([^"]+)"/i) ?? header.match(/filename=([^;]+)/i)
+  return ascii?.[1]?.trim()
+}
+
+export async function downloadFileBlob(fileId: string): Promise<{ blob: Blob; fileName?: string }> {
+  const res = await apiFetchOkAuthed(`/files/${fileId}/download`)
+  const blob = await res.blob()
+  const fileName = filenameFromContentDisposition(res.headers.get('content-disposition'))
+  return { blob, fileName }
+}
+
 export async function renameFile(
   fileId: string,
   name: string,

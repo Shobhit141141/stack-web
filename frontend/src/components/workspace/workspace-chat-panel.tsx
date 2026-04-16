@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
+import { HiOutlineDocumentDuplicate } from 'react-icons/hi2'
 import { ChatAnswerContent, ChatSourceFileChips } from './chat-answer-content'
 import { postAsk, type AskSource } from '../../services/ask-service'
 import { fetchCurrentWorkspaceConversation } from '../../services/conversation-service'
@@ -374,6 +375,15 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     }
   }
 
+  async function copyTurnText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Copied message')
+    } catch {
+      toast.error('Could not copy message')
+    }
+  }
+
   return (
     <Box className="flex h-full min-h-0 flex-1 flex-col bg-white">
       <div className="shrink-0 border-b border-neutral-200 px-4 py-3">
@@ -406,6 +416,20 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                   : 'mr-auto border border-neutral-200 bg-neutral-50 text-neutral-900'
               }`}
             >
+              <div className="mb-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void copyTurnText(t.text)}
+                  className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs ${
+                    t.role === 'user'
+                      ? 'bg-white/15 text-white hover:bg-white/25'
+                      : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300'
+                  }`}
+                >
+                  <HiOutlineDocumentDuplicate className="size-3.5" aria-hidden />
+                  Copy
+                </button>
+              </div>
               {t.role === 'assistant' ? (
                 <>
                   <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
