@@ -85,15 +85,17 @@ export function SearchBar() {
   }, [])
 
   return (
-    <div ref={containerRef} className="relative flex-1 max-w-md">
-      {/* Input */}
-      <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2">
-        <HiOutlineMagnifyingGlass className="size-4 shrink-0 text-neutral-400" />
+    <div ref={containerRef} className="relative w-full">
+      {/* Input — pill shape to match global top bar */}
+      <div className="flex h-10 items-center gap-2 rounded-full border border-neutral-200 bg-white pl-3.5 pr-4 shadow-sm">
+        <HiOutlineMagnifyingGlass className="size-4 shrink-0 text-neutral-400" aria-hidden />
         <input
-          type="text"
+          type="search"
           value={query}
           onChange={(e) => handleChange(e.target.value)}
-          onFocus={() => { if (results.length > 0) setOpen(true) }}
+          onFocus={() => {
+            if (results.length > 0) setOpen(true)
+          }}
           placeholder="Search files..."
           className="min-w-0 flex-1 bg-transparent text-sm text-neutral-900 outline-none placeholder:text-neutral-400"
         />
@@ -140,9 +142,6 @@ export function SearchBar() {
                       {r.snippet}
                     </span>
                   </div>
-                  <span className="mt-0.5 shrink-0 text-[10px] font-medium text-neutral-400">
-                    {Math.round(r.score * 100)}%
-                  </span>
                 </button>
               ))}
             </div>

@@ -1,10 +1,9 @@
-import { Avatar, Button, Popover, Text } from '@radix-ui/themes'
+import { Avatar, Button, Popover, Text, Tooltip } from '@radix-ui/themes'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import {
   HiOutlineArrowUpTray,
   HiOutlineArrowRightOnRectangle,
-  HiOutlineChatBubbleLeftRight,
   HiOutlineChevronLeft,
   HiOutlineClock,
   HiOutlineFolder,
@@ -12,7 +11,7 @@ import {
   HiOutlineTrash,
   HiOutlineUserCircle,
 } from 'react-icons/hi2'
-import { Link, NavLink } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { routeMap } from '../lib/routes'
 import type { MeProfile } from '../types/auth'
@@ -49,10 +48,20 @@ function profileDisplayName(p: MeProfile): string {
 const navItems = [
   { to: routeMap.recents, label: 'Recents', Icon: HiOutlineClock },
   { to: routeMap.files, label: 'Files', Icon: HiOutlineFolder },
-  { to: routeMap.chats, label: 'Chats', Icon: HiOutlineChatBubbleLeftRight },
   { to: routeMap.timeline, label: 'Timeline', Icon: HiOutlineQueueList },
   { to: routeMap.trash, label: 'Trash', Icon: HiOutlineTrash },
 ] as const
+
+function isComingSoonNav(to: (typeof navItems)[number]['to']): boolean {
+  return to === routeMap.timeline || to === routeMap.trash
+}
+
+function navShellClass(collapsed: boolean): string {
+  return [
+    'flex min-w-0 items-center gap-3 rounded-lg border py-2.5 text-sm font-medium transition-colors',
+    collapsed ? 'justify-center px-2' : 'px-3',
+  ].join(' ')
+}
 
 function readCollapsed(): boolean {
   try {
@@ -261,22 +270,9 @@ export function AppSidebar() {
 
       {/* ── Nav items ── */}
       <nav className="mt-5 flex min-w-0 flex-col gap-2 px-3" aria-label="Main">
-        {navItems.map(({ to, label, Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            title={label}
-            className={({ isActive }) =>
-              [
-                'pointer-events-auto flex min-w-0 items-center gap-3 rounded-lg border py-2.5 text-sm font-medium transition-colors',
-                collapsed ? 'justify-center px-2' : 'px-3',
-                isActive
-                  ? 'border-neutral-900 bg-neutral-900 text-white'
-                  : 'border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100',
-              ].join(' ')
-            }
-          >
-            <Icon className="size-5 shrink-0" aria-hidden />
+        {navItems.map(({ to, label, Icon }) => {
+          const comingSoon = isComingSoonNav(to)
+          const labelRow = (
             <AnimatePresence initial={false}>
               {!collapsed && (
                 <motion.span
@@ -291,8 +287,50 @@ export function AppSidebar() {
                 </motion.span>
               )}
             </AnimatePresence>
-          </NavLink>
-        ))}
+          )
+
+          if (comingSoon) {
+            return (
+              <Tooltip key={to} content="Coming soon">
+                <span className="pointer-events-auto inline-flex w-full min-w-0">
+                  <button
+                    type="button"
+                    disabled
+                    aria-disabled
+                    aria-label={`${label} (coming soon)`}
+                    className={[
+                      navShellClass(collapsed),
+                      'w-full cursor-not-allowed border-neutral-200 bg-neutral-50 text-neutral-500',
+                    ].join(' ')}
+                  >
+                    <Icon className="size-5 shrink-0" aria-hidden />
+                    {labelRow}
+                  </button>
+                </span>
+              </Tooltip>
+            )
+          }
+
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              title={label}
+              className={({ isActive }) =>
+                [
+                  'pointer-events-auto',
+                  navShellClass(collapsed),
+                  isActive
+                    ? 'border-neutral-900 bg-neutral-900 text-white'
+                    : 'border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-100',
+                ].join(' ')
+              }
+            >
+              <Icon className="size-5 shrink-0" aria-hidden />
+              {labelRow}
+            </NavLink>
+          )
+        })}
       </nav>
 
       {/* ── Footer: storage + account — same DOM, content crossfades ── */}
@@ -414,7 +452,7 @@ export function AppSidebar() {
                     Account
                   </Heading> */}
                   <Text as="p" size="1" color="gray" className="sr-only">
-                    Open your profile or sign out of Stack.
+                    Sign out of Stack.
                   </Text>
                   <div className="mt-3 flex items-center gap-3">
                     {profile ? (
@@ -443,18 +481,6 @@ export function AppSidebar() {
                     </div>
                   </div>
                   <div className="mt-4 flex flex-col gap-2">
-                    <Button variant="soft" color="gray" size="2" asChild>
-                      <Link
-                        to={routeMap.profile}
-                        onClick={() => setAccountOpen(false)}
-                        className="inline-flex items-center justify-center gap-2 no-underline"
-                      >
-                        <span className="inline-flex items-center justify-center gap-2">
-                          <HiOutlineUserCircle className="size-4 shrink-0" aria-hidden />
-                          Profile
-                        </span>
-                      </Link>
-                    </Button>
                     <Button
                       type="button"
                       variant="soft"

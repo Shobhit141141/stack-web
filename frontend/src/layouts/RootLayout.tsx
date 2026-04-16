@@ -1,17 +1,30 @@
 import { Box, Flex } from '@radix-ui/themes'
 import { Toaster } from 'react-hot-toast'
-import { Outlet } from 'react-router-dom'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { AppSidebar } from '../components/AppSidebar'
+import { AppTopBar } from '../components/AppTopBar'
 import { GlobalLinkPaste } from '../components/GlobalLinkPaste'
-import { SearchBar } from '../components/SearchBar'
 import { PdfViewerModal } from '../components/PdfViewerModal'
 import { UploadModal } from '../components/UploadModal'
 import { VoiceButton } from '../components/VoiceButton'
 import { FullScreenLoader } from '../components/ui/full-screen-loader'
+import type { RootLayoutOutletContext } from './root-layout-outlet-context'
 
 export function RootLayout() {
   const { session, profile, ready, error, configError } = useAuth()
+  const location = useLocation()
+  const [topBarTrailing, setTopBarTrailing] = useState<ReactNode>(null)
+
+  useEffect(() => {
+    setTopBarTrailing(null)
+  }, [location.pathname, location.search])
+
+  const outletContext = useMemo<RootLayoutOutletContext>(
+    () => ({ setTopBarTrailing }),
+    [],
+  )
 
   const authBootstrapping = !ready
   const profilePending = Boolean(
@@ -42,19 +55,9 @@ export function RootLayout() {
           <GlobalLinkPaste />
           <AppSidebar />
           <Box className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <Flex
-              align="center"
-              px="4"
-              py="3"
-              gap="3"
-              className="min-w-0 shrink-0 border-b border-neutral-200 bg-white"
-            >
-              <div className="min-w-0 flex-1">
-                <SearchBar />
-              </div>
-            </Flex>
-            <Box className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-8">
-              <Outlet />
+            <AppTopBar trailing={topBarTrailing} />
+            <Box className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-3 lg:px-6">
+              <Outlet context={outletContext} />
             </Box>
           </Box>
         </Flex>

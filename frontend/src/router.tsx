@@ -12,8 +12,6 @@ import { RecentsPage } from './pages/RecentsPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 import { SectionPlaceholderPage } from './pages/SectionPlaceholderPage'
 import { TimelinePage } from './pages/TimelinePage'
-import { ChatsPage } from './pages/ChatsPage'
-
 const authed = (node: ReactNode) => <RequireAuth>{node}</RequireAuth>
 
 export const router = createBrowserRouter([
@@ -38,10 +36,6 @@ export const router = createBrowserRouter([
           {
             path: appRouteSegment.timeline,
             element: authed(<TimelinePage />),
-          },
-          {
-            path: appRouteSegment.chats,
-            element: authed(<ChatsPage />),
           },
           {
             path: appRouteSegment.files,

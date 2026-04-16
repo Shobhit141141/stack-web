@@ -12,6 +12,18 @@ import { logSemanticSearchDebug } from "../utils/debug-log.util.js";
 const NEAREST_CHUNK_LIMIT = 30;
 const MAX_RESULTS = 10;
 const SNIPPET_MAX_CHARS = 400;
+/** If other hits are more than this far below the best score (on 0–1 scale), drop them. */
+const SEARCH_TOP_SCORE_MARGIN = 0.05;
+
+function rankAndClusterSearchResults(
+  items: SemanticSearchResultItem[]
+): SemanticSearchResultItem[] {
+  if (items.length <= 1) return items;
+  const sorted = [...items].sort((a, b) => b.score - a.score);
+  const top = sorted[0]!.score;
+  const floor = top - SEARCH_TOP_SCORE_MARGIN;
+  return sorted.filter((r) => r.score >= floor);
+}
 
 function truncateSnippet(text: string): string {
   const t = text.replace(/\s+/g, " ").trim();
@@ -186,7 +198,9 @@ export async function semanticSearchUserFiles(
     });
   }
 
-  const duplicateFilesListed = results.reduce(
+  const clustered = rankAndClusterSearchResults(results);
+
+  const duplicateFilesListed = clustered.reduce(
     (n, r) => n + r.duplicates.length,
     0
   );
@@ -203,7 +217,7 @@ export async function semanticSearchUserFiles(
       totalMs,
       chunksFetched: chunks.length,
       distinctContents: seen.size,
-      resultsReturned: results.length,
+      resultsReturned: clustered.length,
       duplicateFilesListed,
     })
   );
@@ -212,13 +226,13 @@ export async function semanticSearchUserFiles(
     ...(options?.workspaceId ? { workspaceId: options.workspaceId } : {}),
     question: query,
     prompt: "embed query -> qdrant nearest-neighbor search -> score filter -> assemble results",
-    response: `Returned ${results.length} search result(s)`,
-    sources: results.map((r) => ({
+    response: `Returned ${clustered.length} search result(s)`,
+    sources: clustered.map((r) => ({
       fileId: r.fileId,
       fileName: r.fileName,
       score: Number(r.score.toFixed(4)),
     })),
   });
 
-  return { results };
+  return { results: clustered };
 }

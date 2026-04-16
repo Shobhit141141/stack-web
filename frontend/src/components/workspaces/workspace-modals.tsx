@@ -52,8 +52,8 @@ export function WorkspaceRenameModal({ target, onClose, onConfirm }: RenameProps
           {target ? (
             <>
               Update the name of{' '}
-              <span className="font-medium text-neutral-800">“{target.name}”</span>. Files and chats
-              stay in this workspace.
+              <span className="font-medium text-neutral-800">“{target.name}”</span>. Files stay in
+              this workspace.
             </>
           ) : null}
         </Dialog.Description>
@@ -126,8 +126,7 @@ export function WorkspaceDeleteModal({ target, onClose, onConfirm }: DeleteProps
             <>
               <span className="font-medium text-neutral-800">“{target.name}”</span> and everything
               inside it will be removed: all files (storage and search index when no other copy
-              exists), this workspace&apos;s chats, and related timeline entries. This cannot be
-              undone.
+              exists) and related timeline entries. This cannot be undone.
             </>
           ) : null}
         </AlertDialog.Description>

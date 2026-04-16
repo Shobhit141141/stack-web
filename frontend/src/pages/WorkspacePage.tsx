@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { FileBrowserView } from '../components/files/file-browser-view'
@@ -25,6 +25,7 @@ import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
 import { FILES_UPDATED_EVENT, type FilesUpdatedDetail } from '../lib/file-sync-events'
 import { routeMap } from '../lib/routes'
+import type { RootLayoutOutletContext } from '../layouts/root-layout-outlet-context'
 import type { FileItem } from '../types/file'
 
 const UUID_RE =
@@ -38,6 +39,7 @@ function isUuid(value: string): boolean {
 
 export function WorkspacePage() {
   const navigate = useNavigate()
+  const { setTopBarTrailing } = useOutletContext<RootLayoutOutletContext>()
   const rawId = useParams().workspaceId ?? ''
   const workspaceId = rawId.trim()
   const setLinkImportWorkspaceId = useLinkImportWorkspaceStore(
@@ -119,6 +121,17 @@ export function WorkspacePage() {
     return () => window.removeEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
   }, [workspaceId, load])
 
+  useEffect(() => {
+    if (!workspace) {
+      setTopBarTrailing(null)
+      return
+    }
+    setTopBarTrailing(
+      <WorkspaceToolbarMenuTrigger workspace={workspace} onOpen={setWorkspaceMenuState} />,
+    )
+    return () => setTopBarTrailing(null)
+  }, [workspace, setTopBarTrailing])
+
   if (!isUuid(workspaceId)) {
     return (
       <div className="p-6">
@@ -144,8 +157,6 @@ export function WorkspacePage() {
       </div>
     )
   }
-
-  const name = workspace?.name ?? 'Workspace'
 
   async function handleRenameConfirm(file: FileItem, newName: string) {
     await renameFile(file.id, newName)
@@ -186,35 +197,6 @@ export function WorkspacePage() {
       data-no-link-import
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <div className="shrink-0 border-b border-neutral-200 bg-white px-4 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0 flex flex-1 flex-wrap items-center gap-2 text-sm text-neutral-500">
-            <Link to={routeMap.files} className="hover:text-neutral-900">
-              Files
-            </Link>
-            <span aria-hidden>/</span>
-            <span className="font-medium text-neutral-900" title={workspace?.name}>
-              {name}
-            </span>
-            <span aria-hidden className="text-neutral-300">
-              |
-            </span>
-            <Link
-              to={routeMap.timelineWorkspace(workspaceId)}
-              className="hover:text-neutral-900"
-            >
-              Timeline
-            </Link>
-          </div>
-          {workspace ? (
-            <WorkspaceToolbarMenuTrigger
-              workspace={workspace}
-              onOpen={setWorkspaceMenuState}
-            />
-          ) : null}
-        </div>
-      </div>
-
       {workspace ? (
         <WorkspaceFolderActionsMenu
           state={workspaceMenuState}
