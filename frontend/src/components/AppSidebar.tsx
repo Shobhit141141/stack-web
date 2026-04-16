@@ -313,6 +313,7 @@ export function AppSidebar() {
             <NavLink
               key={to}
               to={to}
+              end={to === routeMap.home}
               title={label}
               className={({ isActive }) =>
                 [

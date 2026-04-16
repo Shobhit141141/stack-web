@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
-import { createBrowserRouter, Outlet } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
 import { RequireAuth } from './components/RequireAuth'
 import { RouteErrorFallback } from './components/RouteErrorFallback'
 import { appRouteSegment, routeMap } from './lib/routes'
 import { RootLayout } from './layouts/RootLayout'
-import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { FilesPage } from './pages/FilesPage'
@@ -24,14 +23,14 @@ export const router = createBrowserRouter([
         path: routeMap.home,
         element: <RootLayout />,
         children: [
-          { index: true, element: authed(<HomePage />) },
+          { index: true, element: authed(<RecentsPage />) },
           {
             path: appRouteSegment.profile,
             element: authed(<SectionPlaceholderPage title="Profile" />),
           },
           {
             path: appRouteSegment.recents,
-            element: authed(<RecentsPage />),
+            element: authed(<Navigate to={routeMap.home} replace />),
           },
           {
             path: appRouteSegment.timeline,

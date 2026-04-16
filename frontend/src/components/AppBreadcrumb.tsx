@@ -61,28 +61,18 @@ export function AppBreadcrumb() {
 
     if (pathname === '/' || pathname === '') {
       return {
-        crumbs: [{ label: 'Home', to: routeMap.home, emphasize: true }],
-        detail: sub ? `Signed in · ${sub}` : 'Dashboard',
+        crumbs: [{ label: 'Recents', to: routeMap.home, emphasize: true }],
+        detail: sub ? `Signed in · ${sub}` : 'Last opened files',
       }
     }
 
     if (pathname.startsWith(`/${appRouteSegment.profile}`)) {
       return {
         crumbs: [
-          { label: 'Home', to: routeMap.home },
+          { label: 'Recents', to: routeMap.home },
           { label: 'Profile', emphasize: true },
         ],
         detail: 'Account & identity',
-      }
-    }
-
-    if (pathname.startsWith(`/${appRouteSegment.recents}`)) {
-      return {
-        crumbs: [
-          { label: 'Home', to: routeMap.home },
-          { label: 'Recents', emphasize: true },
-        ],
-        detail: 'Last opened files',
       }
     }
 
@@ -91,7 +81,7 @@ export function AppBreadcrumb() {
       const wsName = wsId ? workspaceNameById.get(wsId) : undefined
       return {
         crumbs: [
-          { label: 'Home', to: routeMap.home },
+          { label: 'Recents', to: routeMap.home },
           { label: 'Timeline', emphasize: !wsName },
           ...(wsName
             ? [{ label: wsName, emphasize: true }]
@@ -108,7 +98,7 @@ export function AppBreadcrumb() {
     if (pathname.startsWith(`/${appRouteSegment.files}`)) {
       return {
         crumbs: [
-          { label: 'Home', to: routeMap.home },
+          { label: 'Recents', to: routeMap.home },
           { label: 'Files', emphasize: true },
         ],
         detail: 'Workspaces, uploads, and library',
@@ -134,7 +124,7 @@ export function AppBreadcrumb() {
     if (pathname.startsWith(`/${appRouteSegment.trash}`)) {
       return {
         crumbs: [
-          { label: 'Home', to: routeMap.home },
+          { label: 'Recents', to: routeMap.home },
           { label: 'Trash', emphasize: true },
         ],
         detail: 'Deleted items',
@@ -142,7 +132,7 @@ export function AppBreadcrumb() {
     }
 
     return {
-      crumbs: [{ label: 'Home', to: routeMap.home, emphasize: true }],
+      crumbs: [{ label: 'Recents', to: routeMap.home, emphasize: true }],
       detail: pathname,
     }
   }, [pathname, profile, workspaceIdParam, timelineWs, workspaceNameById])

@@ -36,10 +36,39 @@ export function LoginPage() {
   return (
     <Box className="flex min-h-svh flex-col items-center justify-center bg-white px-6">
       <Flex direction="column" gap="6" align="stretch" className="w-full max-w-sm">
-        <Text size="2" color="gray" className="leading-relaxed">
-          Sign in with Google. Use the same Supabase project as your API; add this
-          origin to Supabase Authentication redirect URLs.
-        </Text>
+        <Flex
+          direction="column"
+          align="center"
+          gap="3"
+          className="w-full"
+          aria-label="Stack — context over storage"
+        >
+          <Flex align="center" justify="center" gap="1" wrap="nowrap" className="min-w-0">
+            <img
+              src="/icons/cloud.svg"
+              alt=""
+              className="h-14 w-14 shrink-0 sm:h-[4.25rem] sm:w-[4.25rem]"
+              width={56}
+              height={56}
+              aria-hidden
+            />
+            <Text
+              as="p"
+              weight="bold"
+              className="text-4xl leading-none tracking-tight text-neutral-900 sm:text-5xl uppercase font-[500]"
+            >
+              stack
+            </Text>
+          </Flex>
+          <Text
+            as="p"
+            size="3"
+            weight="medium"
+            className="w-full text-center uppercase text-neutral-600"
+          >
+            context over storage
+          </Text>
+        </Flex>
         <Button
           type="button"
           size="3"

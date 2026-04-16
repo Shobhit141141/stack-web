@@ -13,7 +13,8 @@ export const routeMap = {
   home: '/',
   login: '/login',
   profile: `/${appRouteSegment.profile}`,
-  recents: `/${appRouteSegment.recents}`,
+  /** app home: recents UI is served at `/` (same as `home`) */
+  recents: '/',
   timeline: `/${appRouteSegment.timeline}`,
   files: `/${appRouteSegment.files}`,
   trash: `/${appRouteSegment.trash}`,
