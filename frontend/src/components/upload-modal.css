@@ -1,6 +1,24 @@
 /* ── Uppy Dashboard overrides to match Stack design system ── */
 /* Font: Mona Sans, Colors: neutral palette, Shapes: rounded-xl */
 
+/* Inline dashboard (inside Stack upload dialog): no full-screen overlay */
+.stack-upload-shell .uppy-Dashboard:not(.uppy-Dashboard--modal) .uppy-Dashboard-overlay {
+  display: none !important;
+}
+
+.stack-upload-shell .uppy-Dashboard:not(.uppy-Dashboard--modal) .uppy-Dashboard-inner {
+  font-family: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  max-width: 100%;
+  border: 1px solid #e5e5e5;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: none;
+}
+
+.stack-upload-shell .uppy-Dashboard-innerWrap {
+  border-radius: 0.75rem;
+}
+
 /* Overlay backdrop */
 .uppy-Dashboard--modal .uppy-Dashboard-overlay {
   background: rgba(0, 0, 0, 0.5);

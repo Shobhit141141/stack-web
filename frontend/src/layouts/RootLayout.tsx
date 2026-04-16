@@ -1,6 +1,6 @@
-import { Avatar, Box, Button, Flex } from '@radix-ui/themes'
+import { Box, Flex } from '@radix-ui/themes'
 import { Toaster } from 'react-hot-toast'
-import { Link, Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { AppSidebar } from '../components/AppSidebar'
 import { GlobalLinkPaste } from '../components/GlobalLinkPaste'
@@ -9,20 +9,9 @@ import { PdfViewerModal } from '../components/PdfViewerModal'
 import { UploadModal } from '../components/UploadModal'
 import { VoiceButton } from '../components/VoiceButton'
 import { FullScreenLoader } from '../components/ui/full-screen-loader'
-import { routeMap } from '../lib/routes'
-import type { MeProfile } from '../types/auth'
-
-function profileInitials(p: MeProfile): string {
-  const from = p.displayName?.trim() || p.email || p.userName || '?'
-  const parts = from.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) {
-    return `${parts[0]!.slice(0, 1)}${parts[1]!.slice(0, 1)}`.toUpperCase()
-  }
-  return from.slice(0, 2).toUpperCase()
-}
 
 export function RootLayout() {
-  const { session, profile, signOut, ready, error, configError } = useAuth()
+  const { session, profile, ready, error, configError } = useAuth()
 
   const authBootstrapping = !ready
   const profilePending = Boolean(
@@ -55,42 +44,14 @@ export function RootLayout() {
           <Box className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <Flex
               align="center"
-              justify="between"
               px="4"
               py="3"
               gap="3"
-              className="shrink-0 border-b border-neutral-200 bg-white"
+              className="min-w-0 shrink-0 border-b border-neutral-200 bg-white"
             >
-              <SearchBar />
-              <Flex align="center" gap="3" className="shrink-0">
-                {profile ? (
-                  <Link
-                    to={routeMap.profile}
-                    className="rounded-full outline-none ring-neutral-900 focus-visible:ring-2"
-                  >
-                    <Avatar
-                      size="2"
-                      radius="full"
-                      fallback={profileInitials(profile)}
-                      src={profile.avatarUrl ?? undefined}
-                      referrerPolicy="no-referrer"
-                      color="gray"
-                      title={profile.displayName ?? profile.email}
-                    />
-                  </Link>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="1"
-                  color="gray"
-                  highContrast
-                  onClick={() => void signOut()}
-                  className="cursor-pointer text-neutral-700"
-                >
-                  Sign out
-                </Button>
-              </Flex>
+              <div className="min-w-0 flex-1">
+                <SearchBar />
+              </div>
             </Flex>
             <Box className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 py-8">
               <Outlet />

@@ -419,7 +419,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
             </div>
           ))
         )}
-        {!showAssistantTyping ? <AssistantTypingRow /> : null}
+        {showAssistantTyping ? <AssistantTypingRow /> : null}
       </div>
 
       <form

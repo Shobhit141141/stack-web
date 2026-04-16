@@ -1,17 +1,21 @@
-import { Text } from '@radix-ui/themes'
+import { Avatar, Button, Popover, Text } from '@radix-ui/themes'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import {
   HiOutlineArrowUpTray,
+  HiOutlineArrowRightOnRectangle,
   HiOutlineChatBubbleLeftRight,
   HiOutlineChevronLeft,
   HiOutlineClock,
   HiOutlineFolder,
   HiOutlineQueueList,
   HiOutlineTrash,
+  HiOutlineUserCircle,
 } from 'react-icons/hi2'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
+import { useAuth } from '../auth/useAuth'
 import { routeMap } from '../lib/routes'
+import type { MeProfile } from '../types/auth'
 import { useUploadStore } from '../store/upload-store'
 import { SegmentedProgressBar } from './ui/segmented-progress-bar'
 
@@ -28,6 +32,19 @@ const sidebarTransition = {
 }
 
 const labelTransition = { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] as const }
+
+function profileInitials(p: MeProfile): string {
+  const from = p.displayName?.trim() || p.email || p.userName || '?'
+  const parts = from.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return `${parts[0]!.slice(0, 1)}${parts[1]!.slice(0, 1)}`.toUpperCase()
+  }
+  return from.slice(0, 2).toUpperCase()
+}
+
+function profileDisplayName(p: MeProfile): string {
+  return p.displayName?.trim() || p.userName || p.email
+}
 
 const navItems = [
   { to: routeMap.recents, label: 'Recents', Icon: HiOutlineClock },
@@ -132,12 +149,14 @@ function CircularProgress({
   )
 }
 
-// left rail: logo, upload, nav, storage + ask; width + labels animated with motion
+// left rail: logo, upload, nav, storage + account; width + labels animated with motion
 // IMPORTANT: every element stays at the same vertical position during collapse/expand.
 // Only width changes and labels fade — no DOM swaps that cause vertical displacement.
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(readCollapsed)
+  const [accountOpen, setAccountOpen] = useState(false)
   const openUpload = useUploadStore((s) => s.open)
+  const { profile, signOut } = useAuth()
 
   useEffect(() => {
     try {
@@ -145,6 +164,10 @@ export function AppSidebar() {
     } catch {
       // ignore quota / private mode
     }
+  }, [collapsed])
+
+  useEffect(() => {
+    if (collapsed) setAccountOpen(false)
   }, [collapsed])
 
   return (
@@ -272,7 +295,7 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      {/* ── Footer: storage + ask — same DOM, content crossfades ── */}
+      {/* ── Footer: storage + account — same DOM, content crossfades ── */}
       <div className="mt-auto shrink-0 px-3 pb-4 pt-6">
         <div
           className={[
@@ -312,28 +335,146 @@ export function AppSidebar() {
             </motion.div>
           </div>
 
-          {/* Ask button */}
-          <button
-            type="button"
-            className="pointer-events-auto flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-50"
-            title="Ask file?"
-          >
-            <HiOutlineChatBubbleLeftRight className="size-5 shrink-0" aria-hidden />
-            <AnimatePresence initial={false}>
-              {!collapsed && (
-                <motion.span
-                  key="ask-label"
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: 'auto' }}
-                  exit={{ opacity: 0, width: 0 }}
-                  transition={labelTransition}
-                  className="overflow-hidden whitespace-nowrap"
+          {/* Account: popover anchored to trigger (profile + sign out) */}
+          <div className="pointer-events-auto w-full">
+            <Popover.Root
+              open={accountOpen}
+              onOpenChange={(open) => {
+                if (open && collapsed) {
+                  setCollapsed(false)
+                  return
+                }
+                setAccountOpen(open)
+              }}
+            >
+              <Popover.Trigger
+                type="button"
+                aria-expanded={accountOpen}
+                aria-haspopup="true"
+                title={profile ? profileDisplayName(profile) : 'Account'}
+                className={[
+                  'w-full min-w-0 cursor-pointer rounded-lg border py-2 text-sm font-medium text-neutral-900 transition-[border-color,background-color,box-shadow] duration-200 ease-out hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-50',
+                  accountOpen
+                    ? 'border-neutral-400 bg-neutral-50 shadow-sm'
+                    : 'border-neutral-300 bg-white',
+                  'px-2',
+                ].join(' ')}
+              >
+                {/* Radix Popover.Trigger composes with Slot — must be exactly one element child */}
+                <span
+                  className={[
+                    'flex min-w-0 w-full items-center gap-2',
+                    collapsed ? 'justify-center' : 'text-left',
+                  ].join(' ')}
                 >
-                  Ask file?
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </button>
+                  {profile ? (
+                    <Avatar
+                      size="2"
+                      radius="full"
+                      fallback={profileInitials(profile)}
+                      src={profile.avatarUrl ?? undefined}
+                      referrerPolicy="no-referrer"
+                      color="gray"
+                      className="shrink-0"
+                    />
+                  ) : (
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-neutral-600">
+                      <HiOutlineUserCircle className="size-6" aria-hidden />
+                    </span>
+                  )}
+                  <AnimatePresence initial={false}>
+                    {!collapsed && (
+                      <motion.span
+                        key="account-label"
+                        initial={{ opacity: 0, width: 0 }}
+                        animate={{ opacity: 1, width: 'auto' }}
+                        exit={{ opacity: 0, width: 0 }}
+                        transition={labelTransition}
+                        className="min-w-0 flex-1 overflow-hidden text-left"
+                      >
+                        <span className="block truncate">
+                          {profile ? profileDisplayName(profile) : 'Account'}
+                        </span>
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </span>
+              </Popover.Trigger>
+
+              <Popover.Content
+                size="2"
+                width="200px"
+                side="top"
+                align="center"
+                sideOffset={8}
+                collisionPadding={16}
+              >
+                <div className="flex flex-col">
+                  {/* <Heading as="h2" size="4" weight="bold" className="text-neutral-900">
+                    Account
+                  </Heading> */}
+                  <Text as="p" size="1" color="gray" className="sr-only">
+                    Open your profile or sign out of Stack.
+                  </Text>
+                  <div className="mt-3 flex items-center gap-3">
+                    {profile ? (
+                      <Avatar
+                        size="3"
+                        radius="full"
+                        fallback={profileInitials(profile)}
+                        src={profile.avatarUrl ?? undefined}
+                        referrerPolicy="no-referrer"
+                        color="gray"
+                      />
+                    ) : (
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-neutral-600">
+                        <HiOutlineUserCircle className="size-7" aria-hidden />
+                      </span>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <Text as="p" size="2" weight="medium" className="truncate text-neutral-900">
+                        {profile ? profileDisplayName(profile) : 'Account'}
+                      </Text>
+                      {profile ? (
+                        <Text as="p" size="1" color="gray" className="mt-0.5 truncate">
+                          {profile.email}
+                        </Text>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2">
+                    <Button variant="soft" color="gray" size="2" asChild>
+                      <Link
+                        to={routeMap.profile}
+                        onClick={() => setAccountOpen(false)}
+                        className="inline-flex items-center justify-center gap-2 no-underline"
+                      >
+                        <span className="inline-flex items-center justify-center gap-2">
+                          <HiOutlineUserCircle className="size-4 shrink-0" aria-hidden />
+                          Profile
+                        </span>
+                      </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="soft"
+                      color="red"
+                      size="2"
+                      onClick={() => {
+                        setAccountOpen(false)
+                        void signOut()
+                      }}
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        <HiOutlineArrowRightOnRectangle className="size-4 shrink-0" aria-hidden />
+                        Sign out
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+              </Popover.Content>
+            </Popover.Root>
+          </div>
         </div>
       </div>
       </div>
