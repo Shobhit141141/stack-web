@@ -1,10 +1,9 @@
 import { Avatar, Button, Popover, Text, Tooltip } from '@radix-ui/themes'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   HiOutlineArrowUpTray,
   HiOutlineArrowRightOnRectangle,
-  HiOutlineChevronLeft,
   HiOutlineClock,
   HiOutlineFolder,
   HiOutlineQueueList,
@@ -17,8 +16,6 @@ import { routeMap } from '../lib/routes'
 import type { MeProfile } from '../types/auth'
 import { useUploadStore } from '../store/upload-store'
 import { SegmentedProgressBar } from './ui/segmented-progress-bar'
-
-const SIDEBAR_COLLAPSED_KEY = 'stack-sidebar-collapsed'
 
 const SIDEBAR_WIDTH_EXPANDED = 240
 const SIDEBAR_WIDTH_COLLAPSED = 68
@@ -61,14 +58,6 @@ function navShellClass(collapsed: boolean): string {
     'flex min-w-0 items-center gap-3 rounded-lg border py-2.5 text-sm font-medium transition-colors',
     collapsed ? 'justify-center px-2' : 'px-3',
   ].join(' ')
-}
-
-function readCollapsed(): boolean {
-  try {
-    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
-  } catch {
-    return false
-  }
 }
 
 function CircularProgress({
@@ -159,28 +148,38 @@ function CircularProgress({
 }
 
 // left rail: logo, upload, nav, storage + account; width + labels animated with motion
+// Expand while pointer is over the rail, collapsed width when pointer leaves (popover / focus keep it open).
 // IMPORTANT: every element stays at the same vertical position during collapse/expand.
-// Only width changes and labels fade — no DOM swaps that cause vertical displacement.
 export function AppSidebar() {
-  const [collapsed, setCollapsed] = useState(readCollapsed)
+  const asideRef = useRef<HTMLElement>(null)
+  const [hovered, setHovered] = useState(false)
+  const [focusInside, setFocusInside] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const openUpload = useUploadStore((s) => s.open)
   const { profile, signOut } = useAuth()
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0')
-    } catch {
-      // ignore quota / private mode
-    }
-  }, [collapsed])
+  const railExpanded = hovered || accountOpen || focusInside
+  const collapsed = !railExpanded
 
   useEffect(() => {
-    if (collapsed) setAccountOpen(false)
-  }, [collapsed])
+    const el = asideRef.current
+    if (!el) return
+    const onFocusIn = () => setFocusInside(true)
+    const onFocusOut = (e: FocusEvent) => {
+      const rt = e.relatedTarget as Node | null
+      if (!rt || !el.contains(rt)) setFocusInside(false)
+    }
+    el.addEventListener('focusin', onFocusIn)
+    el.addEventListener('focusout', onFocusOut)
+    return () => {
+      el.removeEventListener('focusin', onFocusIn)
+      el.removeEventListener('focusout', onFocusOut)
+    }
+  }, [])
 
   return (
     <motion.aside
+      ref={asideRef}
       data-no-link-import
       initial={false}
       animate={{
@@ -188,24 +187,12 @@ export function AppSidebar() {
       }}
       transition={sidebarTransition}
       className="relative flex h-svh shrink-0 flex-col overflow-hidden border-r border-neutral-300 bg-neutral-50"
-      aria-expanded={!collapsed}
+      aria-expanded={railExpanded}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {collapsed ? (
-        <button
-          type="button"
-          aria-label="Expand sidebar"
-          className="absolute inset-0 z-0 cursor-pointer border-0 bg-transparent p-0"
-          onClick={() => setCollapsed(false)}
-        />
-      ) : null}
-
-      <div
-        className={[
-          'relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
-          collapsed ? 'pointer-events-none' : '',
-        ].join(' ')}
-      >
-      {/* ── Header: mark always visible, wordmark + chevron fade ── */}
+      <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {/* ── Header: logo + wordmark (width follows hover) ── */}
       <div className="flex shrink-0 items-center gap-2 px-3 pt-4 pb-3 ml-1">
         <motion.div
           initial={false}
@@ -224,21 +211,6 @@ export function AppSidebar() {
           <Text size="4" weight="bold" className="whitespace-nowrap lowercase tracking-tight text-neutral-900">
             stack
           </Text>
-        </motion.div>
-        <motion.div
-          initial={false}
-          animate={{ width: collapsed ? 0 : 32, opacity: collapsed ? 0 : 1 }}
-          transition={sidebarTransition}
-          className="overflow-hidden"
-        >
-          <button
-            type="button"
-            onClick={() => setCollapsed(true)}
-            className="pointer-events-auto flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100"
-            aria-label="Collapse sidebar"
-          >
-            <HiOutlineChevronLeft className="size-4" aria-hidden />
-          </button>
         </motion.div>
       </div>
 
@@ -375,16 +347,7 @@ export function AppSidebar() {
 
           {/* Account: popover anchored to trigger (profile + sign out) */}
           <div className="pointer-events-auto w-full">
-            <Popover.Root
-              open={accountOpen}
-              onOpenChange={(open) => {
-                if (open && collapsed) {
-                  setCollapsed(false)
-                  return
-                }
-                setAccountOpen(open)
-              }}
-            >
+            <Popover.Root open={accountOpen} onOpenChange={setAccountOpen}>
               <Popover.Trigger
                 type="button"
                 aria-expanded={accountOpen}
