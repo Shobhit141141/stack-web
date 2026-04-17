@@ -14,6 +14,15 @@ It supports uploading your files, organizing them into workspaces, running seman
 
 The project aims to make working with your files smarter and more interactive, blending powerful search and AI features in one experience.
 
+## Links
+
+[![Demo](https://img.shields.io/badge/Demo-Video-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://drive.google.com/file/d/1e6g2s7xp1jsxqbXlJlja6M3Gw8Y8tQZO/view)
+[![Live](https://img.shields.io/badge/Live-Site-00C851?style=for-the-badge&logo=vercel&logoColor=white)](http://stack.shobhittiwari.dev)
+[![PPT](https://img.shields.io/badge/Presentation-PPT-B7472A?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white)](https://canva.link/09gicnxhj45vfqv)
+
+
+## Tech Stack
+
 | Area | Stack |
 |------|-------|
 | API | ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?style=for-the-badge&logo=nodedotjs&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-007ACC?style=for-the-badge&logo=typescript&logoColor=white) ![Express](https://img.shields.io/badge/Express-5-000000?style=for-the-badge&logo=express&logoColor=white) |
