@@ -1,4 +1,12 @@
-# Stack
+<div align="center">
+
+<img src="/frontend/public/image.png" alt="Project Logo" width="120" height="120">
+
+# STACK
+### Context over storage
+
+</div>
+  
 
 **Stack** is a platform focused on helping you manage, search, and interact with your documents. 
 
@@ -6,11 +14,21 @@ It supports uploading your files, organizing them into workspaces, running seman
 
 The project aims to make working with your files smarter and more interactive, blending powerful search and AI features in one experience.
 
-| Area        | Stack |
-|------------|--------|
-| API        | ![Node](https://img.shields.io/badge/node-%3E%3D18-339933?logo=nodedotjs&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white) ![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white) |
-| Data       | ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Prisma-4169E1?logo=postgresql&logoColor=white) ![Supabase](https://img.shields.io/badge/Supabase-Auth%20%2B%20Storage-3ECF8E?logo=supabase&logoColor=black) ![Qdrant](https://img.shields.io/badge/Qdrant-vectors-DC244C?logo=qdrant&logoColor=white) |
-| UI         | ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black) ![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white) ![Tailwind](https://img.shields.io/badge/Tailwind-4-06B6D4?logo=tailwindcss&logoColor=white) |
+## Links
+
+[![Demo](https://img.shields.io/badge/Demo-Video-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://drive.google.com/file/d/1e6g2s7xp1jsxqbXlJlja6M3Gw8Y8tQZO/view)
+[![Live](https://img.shields.io/badge/Live-Site-00C851?style=for-the-badge&logo=vercel&logoColor=white)](http://stack.shobhittiwari.dev)
+[![PPT](https://img.shields.io/badge/Presentation-PPT-B7472A?style=for-the-badge&logo=microsoftpowerpoint&logoColor=white)](https://canva.link/09gicnxhj45vfqv)
+
+
+## Tech Stack
+
+| Area | Stack |
+|------|-------|
+| API | ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?style=for-the-badge&logo=nodedotjs&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-007ACC?style=for-the-badge&logo=typescript&logoColor=white) ![Express](https://img.shields.io/badge/Express-5-000000?style=for-the-badge&logo=express&logoColor=white) |
+| AI | ![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=for-the-badge&logo=openai&logoColor=white) ![Gemini](https://img.shields.io/badge/Gemini-2.0-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white) ![Vapi](https://img.shields.io/badge/Vapi-Voice%20AI-5B4FBE?style=for-the-badge&logoColor=white) |
+| Data | ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white) ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=black) ![Qdrant](https://img.shields.io/badge/Qdrant-vectors-DC244C?style=for-the-badge&logoColor=white) ![Redis](https://img.shields.io/badge/Redis-FF4438?style=for-the-badge&logo=redis&logoColor=white) |
+| UI | ![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black) ![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=for-the-badge&logo=vite&logoColor=white) ![Tailwind](https://img.shields.io/badge/Tailwind-4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white) ![Radix UI](https://img.shields.io/badge/Radix_UI-161618?style=for-the-badge&logo=radixui&logoColor=white)|
 
 ## Repository layout
 
