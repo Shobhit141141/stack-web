@@ -216,7 +216,7 @@ export function WorkspacePage() {
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <section className="flex min-h-[min(42dvh,20rem)] min-w-0 flex-1 flex-col border-neutral-200 lg:min-h-0 lg:border-r">
+        <section className="flex min-h-0 min-w-0 flex-1 basis-1/2 flex-col border-neutral-200 lg:basis-auto lg:border-r">
           {workspace ? (
             <WorkspaceChatPanel workspaceId={workspace.id} workspaceName={workspace.name} />
           ) : (
@@ -228,7 +228,7 @@ export function WorkspacePage() {
           )}
         </section>
 
-        <aside className="flex w-full shrink-0 flex-col gap-3 border-neutral-200 bg-neutral-50/60 p-3 sm:p-4 lg:w-88 lg:min-h-0 lg:border-l xl:w-96">
+        <aside className="flex min-h-0 w-full flex-1 basis-1/2 shrink-0 flex-col gap-3 border-neutral-200 bg-neutral-50/60 p-3 sm:p-4 lg:w-88 lg:basis-auto lg:border-l xl:w-96">
           <div className="flex items-center justify-between gap-2">
             <Text size="3" weight="bold" className="text-neutral-900">
               Files

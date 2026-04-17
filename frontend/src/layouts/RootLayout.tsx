@@ -49,7 +49,7 @@ export function RootLayout() {
       <PdfViewerModal />
       <UploadModal />
       <VoiceButton />
-      {!showFullLoader ? <FullScreenLoader /> : null}
+      {showFullLoader ? <FullScreenLoader /> : null}
       {showFullLoader ? null : showAppChrome ? (
         <Flex className="h-svh w-full overflow-hidden">
           <GlobalLinkPaste />

@@ -80,6 +80,7 @@ export function RecentsPage() {
         error={error}
         emptyMessage="No recent files yet."
         view={view}
+        gridMinCardPx={132}
         dateStyle="relative"
         onOpenFile={(f) => void openFile(f)}
         onRenameFile={(f) => setRenameTarget(f)}

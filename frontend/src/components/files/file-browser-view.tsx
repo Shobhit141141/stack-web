@@ -6,6 +6,7 @@ import type { DragEvent } from 'react'
 import type { FileItem } from '../../types/file'
 import type { BrowserViewMode } from '../../hooks/use-browser-view-mode'
 import type { WorkspaceItem } from '../../services/workspace-service'
+import { useMediaQuery } from '../../hooks/use-media-query'
 import {
   FILE_LIST_GRID_TEMPLATE,
   FILE_LIST_GRID_WITH_WORKSPACE,
@@ -41,6 +42,8 @@ type Props = {
   workspaceNameById?: Map<string, string>
   workspaceHref?: (workspaceId: string) => string
   onBulkDeleteRequest?: (files: FileItem[]) => void
+  /** grid card min width in px (smaller value allows 2 cols on narrow layouts) */
+  gridMinCardPx?: number
 }
 
 const FILE_DRAG_MIME = 'application/x-stack-file'
@@ -368,6 +371,8 @@ function FileRowList({
   onMouseActivate,
   onKeyActivate,
   showWorkspaceTags,
+  showSizeColumn,
+  inlineWorkspaceChip,
   workspaceLabel,
   workspaceLinkTo,
 }: {
@@ -379,6 +384,8 @@ function FileRowList({
   onMouseActivate: (f: FileItem, e: React.MouseEvent) => void
   onKeyActivate: (f: FileItem) => void
   showWorkspaceTags: boolean
+  showSizeColumn: boolean
+  inlineWorkspaceChip: boolean
   workspaceLabel: string | null
   workspaceLinkTo: string | null
 }) {
@@ -416,12 +423,35 @@ function FileRowList({
     >
       <div className="flex min-w-0 items-center gap-3">
         <img src={fileIcon(file.type)} alt="" className="h-8 w-8 shrink-0" />
-        <Text
-          size="2"
-          className={`min-w-0 truncate transition-all duration-200 group-hover:font-semibold ${selText}`}
-        >
-          {file.name}
-        </Text>
+        <div className="min-w-0">
+          <Text
+            size="2"
+            className={`min-w-0 truncate transition-all duration-200 group-hover:font-semibold ${selText}`}
+          >
+            {file.name}
+          </Text>
+          {inlineWorkspaceChip ? (
+            <div className="mt-0.5 min-w-0">
+              {workspaceLinkTo ? (
+                <Link
+                  to={workspaceLinkTo}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
+                  title={workspaceLabel ?? undefined}
+                >
+                  {workspaceLabel}
+                </Link>
+              ) : (
+                <span
+                  className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
+                  title="Not in a workspace"
+                >
+                  {workspaceLabel ?? 'No workspace'}
+                </span>
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
       {showWorkspaceTags ? (
         <div className="min-w-0 justify-self-start">
@@ -444,12 +474,14 @@ function FileRowList({
           )}
         </div>
       ) : null}
-      <Text
-        size="1"
-        className={`transition-all duration-200 group-hover:font-bold ${selMuted}`}
-      >
-        {formatFileSize(file.size)}
-      </Text>
+      {showSizeColumn ? (
+        <Text
+          size="1"
+          className={`transition-all duration-200 group-hover:font-bold ${selMuted}`}
+        >
+          {formatFileSize(file.size)}
+        </Text>
+      ) : null}
       <Text
         size="1"
         className={`justify-self-end text-right transition-all duration-200 group-hover:font-bold ${selMuted}`}
@@ -489,13 +521,23 @@ export function FileBrowserView({
   workspaceNameById,
   workspaceHref,
   onBulkDeleteRequest,
+  gridMinCardPx = 160,
 }: Props) {
   const [menuState, setMenuState] = useState<FileActionsMenuState | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const isMobile = useMediaQuery('(max-width: 639px)')
 
-  const listGridTemplate = showWorkspaceTags
+  const showWorkspaceColumn = showWorkspaceTags && !isMobile
+  const showSizeColumn = !isMobile
+  const listGridTemplate = showWorkspaceColumn
     ? FILE_LIST_GRID_WITH_WORKSPACE
-    : FILE_LIST_GRID_TEMPLATE
+    : showSizeColumn
+      ? FILE_LIST_GRID_TEMPLATE
+      : 'minmax(0,1fr) 5.25rem'
+  const mobileGridClass = 'grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(var(--grid-min-card),1fr))]'
+  const gridCssVars = {
+    '--grid-min-card': `${gridMinCardPx}px`,
+  } as React.CSSProperties
 
   function openMenu(file: FileItem, x: number, y: number, snapRightTo?: number) {
     setMenuState({ file, x, y, snapRightTo })
@@ -597,7 +639,7 @@ export function FileBrowserView({
 
   if (loading) {
     return view === 'grid' ? (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+      <div className={`grid gap-3 ${mobileGridClass}`} style={gridCssVars}>
         {Array.from({ length: 8 }, (_, i) => (
           <div key={i} className="flex flex-col items-center gap-3 rounded-xl bg-white p-4">
             <Skeleton className="h-12 w-12 rounded-lg" />
@@ -616,8 +658,8 @@ export function FileBrowserView({
           style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
         >
           <Skeleton className="h-3 w-10" />
-          {showWorkspaceTags ? <Skeleton className="h-3 w-16" /> : null}
-          <Skeleton className="h-3 w-10" />
+          {showWorkspaceColumn ? <Skeleton className="h-3 w-16" /> : null}
+          {showSizeColumn ? <Skeleton className="h-3 w-10" /> : null}
           <Skeleton className="h-3 w-14 justify-self-end" />
           <Skeleton className="h-3 w-5 justify-self-end" />
         </div>
@@ -631,8 +673,8 @@ export function FileBrowserView({
               <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
               <Skeleton className="h-4 w-3/4" />
             </div>
-            {showWorkspaceTags ? <Skeleton className="h-3 w-20" /> : null}
-            <Skeleton className="h-3 w-14" />
+            {showWorkspaceColumn ? <Skeleton className="h-3 w-20" /> : null}
+            {showSizeColumn ? <Skeleton className="h-3 w-14" /> : null}
             <Skeleton className="h-3 w-14 justify-self-end" />
             <Skeleton className="h-3 w-5 justify-self-end" />
           </div>
@@ -661,7 +703,7 @@ export function FileBrowserView({
     return (
       <div className="flex flex-col gap-3">
         {selectionToolbar}
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+        <div className={`grid gap-3 ${mobileGridClass}`} style={gridCssVars}>
           {files.map((f) => {
             const { label, linkTo } = workspaceMeta(f)
             return (
@@ -696,20 +738,22 @@ export function FileBrowserView({
   return (
     <div className="flex flex-col gap-2">
       {selectionToolbar}
-      <div
-        className="grid items-center px-0 pb-1"
-        style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
-      >
-        <span className="text-left text-xs font-medium text-neutral-400">Name</span>
-        {showWorkspaceTags ? (
-          <span className="text-left text-xs font-medium text-neutral-400">Workspace</span>
-        ) : null}
-        <span className="text-left text-xs font-medium text-neutral-400">Size</span>
-        <span className="justify-self-end text-right text-xs font-medium text-neutral-400">
-          {dateStyle === 'short' ? 'Added' : 'Uploaded'}
-        </span>
-        <span />
-      </div>
+      {isMobile ? null : (
+        <div
+          className="grid items-center px-0 pb-1"
+          style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
+        >
+          <span className="text-left text-xs font-medium text-neutral-400">Name</span>
+          {showWorkspaceColumn ? (
+            <span className="text-left text-xs font-medium text-neutral-400">Workspace</span>
+          ) : null}
+          {showSizeColumn ? <span className="text-left text-xs font-medium text-neutral-400">Size</span> : null}
+          <span className="justify-self-end text-right text-xs font-medium text-neutral-400">
+            {dateStyle === 'short' ? 'Added' : 'Uploaded'}
+          </span>
+          <span />
+        </div>
+      )}
       {files.map((f) => {
         const { label, linkTo } = workspaceMeta(f)
         return (
@@ -722,7 +766,9 @@ export function FileBrowserView({
             selected={selectedIds.has(f.id)}
             onMouseActivate={handleMouseActivate}
             onKeyActivate={handleKeyActivate}
-            showWorkspaceTags={showWorkspaceTags}
+            showWorkspaceTags={showWorkspaceColumn}
+            showSizeColumn={showSizeColumn}
+            inlineWorkspaceChip={isMobile && showWorkspaceTags}
             workspaceLabel={label}
             workspaceLinkTo={linkTo}
           />

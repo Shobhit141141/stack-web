@@ -1,4 +1,3 @@
-import { HiOutlineArrowPath } from 'react-icons/hi2'
 import { RiLoader4Line } from 'react-icons/ri'
 export function FullScreenLoader() {
   return (
