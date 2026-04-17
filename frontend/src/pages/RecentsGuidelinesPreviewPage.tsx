@@ -6,7 +6,7 @@ import { routeMap } from '../lib/routes'
 // dummy route to preview onboarding copy without touching localStorage dismissal on home
 export function RecentsGuidelinesPreviewPage() {
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
+    <div className="flex h-full flex-col gap-4 p-4 sm:p-6">
       <div>
         <Text size="5" weight="bold" className="text-neutral-900">
           Guidelines preview

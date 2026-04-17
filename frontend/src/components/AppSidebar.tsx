@@ -15,6 +15,7 @@ import { useAuth } from '../auth/useAuth'
 import { routeMap } from '../lib/routes'
 import type { MeProfile } from '../types/auth'
 import { useFileStorageSummary } from '../hooks/use-file-storage-summary'
+import { MEDIA_LG_MIN, useMediaQuery } from '../hooks/use-media-query'
 import { useUploadStore } from '../store/upload-store'
 import { formatFileSize } from '../utils/file-display'
 import { SegmentedProgressBar } from './ui/segmented-progress-bar'
@@ -184,7 +185,9 @@ export function AppSidebar() {
     </div>
   )
 
-  const railExpanded = hovered || accountOpen || focusInside
+  const canExpandRail = useMediaQuery(MEDIA_LG_MIN)
+  // Mobile / narrow: always collapsed width; desktop: expand on hover, account menu, or focus
+  const railExpanded = canExpandRail && (hovered || accountOpen || focusInside)
   const collapsed = !railExpanded
 
   useEffect(() => {

@@ -380,9 +380,9 @@ export function TimelinePage() {
     workspaceIdParam === undefined
 
   return (
-    <div className="flex h-full w-full flex-col px-6 py-8 pr-8">
+    <div className="flex h-full w-full flex-col px-4 py-6 pr-4 sm:px-6 sm:py-8 sm:pr-8">
       <div className="w-full max-w-2xl">
-        <header className="mb-8 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <header className="mb-6 flex flex-col gap-1 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-lg font-semibold tracking-tight text-neutral-900">Timeline</h1>
             <p className="mt-0.5 text-sm text-neutral-500">A quiet feed of what changed.</p>

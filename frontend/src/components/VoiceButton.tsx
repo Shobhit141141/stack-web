@@ -69,7 +69,7 @@ export function VoiceButton() {
       </AnimatePresence>
 
       {!showOverlay ? (
-        <div className="fixed bottom-6 right-6 z-80 flex max-w-sm flex-col items-end gap-2">
+        <div className="fixed bottom-4 right-4 z-80 flex max-w-sm flex-col items-end gap-2 pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] sm:bottom-6 sm:right-6">
           {lastConnectError ? (
             <motion.div
               initial={{ opacity: 0, y: 6 }}

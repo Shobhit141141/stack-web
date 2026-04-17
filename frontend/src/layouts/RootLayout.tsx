@@ -49,14 +49,14 @@ export function RootLayout() {
       <PdfViewerModal />
       <UploadModal />
       <VoiceButton />
-      {showFullLoader ? <FullScreenLoader /> : null}
+      {!showFullLoader ? <FullScreenLoader /> : null}
       {showFullLoader ? null : showAppChrome ? (
         <Flex className="h-svh w-full overflow-hidden">
           <GlobalLinkPaste />
           <AppSidebar />
           <Box className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <AppTopBar trailing={topBarTrailing} />
-            <Box className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-3 lg:px-6">
+            <Box className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2.5 sm:px-4 sm:pb-4 sm:pt-3 lg:px-6">
               <Outlet context={outletContext} />
             </Box>
           </Box>
