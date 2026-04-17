@@ -287,6 +287,8 @@ export function useVapi(options?: { workspaceId?: string }) {
             handledDeleteToastKeysRef.current.add(key)
             toast.success(`Deleted ${deletedName}`)
           }
+          // sync file list, workspace UI, and storage summary across the app
+          emitFilesUpdated({ workspaceId: workspaceId ?? null })
         }
       }
 
@@ -308,6 +310,8 @@ export function useVapi(options?: { workspaceId?: string }) {
                 handledDeleteToastKeysRef.current.add(key)
                 toast.success(`Deleted ${deletedName}`)
               }
+              // sync file list, workspace UI, and storage summary
+              emitFilesUpdated({ workspaceId: workspaceId ?? null })
             }
             continue
           }
