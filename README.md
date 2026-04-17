@@ -1,4 +1,12 @@
-# Stack
+<div align="center">
+
+<img src="/frontend/public/image.png" alt="Project Logo" width="120" height="120">
+
+# STACK
+### Context over storage
+
+</div>
+  
 
 **Stack** is a platform focused on helping you manage, search, and interact with your documents. 
 
