@@ -11,6 +11,7 @@ import { RecentsPage } from './pages/RecentsPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 import { SectionPlaceholderPage } from './pages/SectionPlaceholderPage'
 import { TimelinePage } from './pages/TimelinePage'
+import { RecentsGuidelinesPreviewPage } from './pages/RecentsGuidelinesPreviewPage'
 const authed = (node: ReactNode) => <RequireAuth>{node}</RequireAuth>
 
 export const router = createBrowserRouter([
@@ -47,6 +48,10 @@ export const router = createBrowserRouter([
           {
             path: appRouteSegment.trash,
             element: authed(<SectionPlaceholderPage title="Trash" />),
+          },
+          {
+            path: '__stack/guidelines-preview',
+            element: authed(<RecentsGuidelinesPreviewPage />),
           },
         ],
       },

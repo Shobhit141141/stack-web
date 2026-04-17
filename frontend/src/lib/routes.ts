@@ -23,6 +23,8 @@ export const routeMap = {
   /** activity timeline filtered to one workspace (uploads, searches in that ws) */
   timelineWorkspace: (workspaceId: string) =>
     `/${appRouteSegment.timeline}?workspaceId=${encodeURIComponent(workspaceId)}`,
+  /** dev: always show recents guidelines UI; does not persist dismiss to localStorage */
+  stackGuidelinesPreview: '/__stack/guidelines-preview',
 } as const
 
 export type AppRoutePath = Exclude<

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
+import { RecentsGuidelinesBanner } from '../components/recents/recents-guidelines-banner'
 import { RecentTasksStrip } from '../components/recents/recent-tasks-strip'
 import { FileBrowserView } from '../components/files/file-browser-view'
 import { FileRenameDeleteModals } from '../components/files/file-rename-delete-modals'
@@ -61,13 +62,15 @@ export function RecentsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-5 p-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
       <div className="flex items-center justify-between">
         <Text size="5" weight="bold" className="text-neutral-900">
           Recents
         </Text>
         <ViewModeToggle view={view} onChange={setView} />
       </div>
+
+      <RecentsGuidelinesBanner />
 
       <RecentTasksStrip />
 
