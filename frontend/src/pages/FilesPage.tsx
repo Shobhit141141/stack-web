@@ -25,7 +25,10 @@ import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-stor
 import { useUploadStore } from '../store/upload-store'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
-import { emitFilesUpdated } from '../lib/file-sync-events'
+import {
+  emitFilesUpdated,
+  FILES_UPDATED_EVENT,
+} from '../lib/file-sync-events'
 import { routeMap } from '../lib/routes'
 import type { FileItem } from '../types/file'
 
@@ -113,6 +116,15 @@ export function FilesPage() {
   useEffect(() => {
     void loadFiles()
   }, [loadFiles])
+
+  useEffect(() => {
+    function onFilesUpdated(_ev: Event) {
+      void loadFiles()
+      void loadWorkspaces()
+    }
+    window.addEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+    return () => window.removeEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+  }, [loadFiles, loadWorkspaces])
 
   async function handleRenameConfirm(file: FileItem, newName: string) {
     await renameFile(file.id, newName)

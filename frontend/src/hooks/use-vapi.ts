@@ -170,13 +170,13 @@ export function useVapi(options?: { workspaceId?: string }) {
   const deleteReferredFile = useCallback(async (fileId: string, fileName: string) => {
     try {
       await deleteFile(fileId)
-      emitFilesUpdated()
+      emitFilesUpdated({ workspaceId: workspaceId ?? null })
       toast.success(`Deleted ${fileName}`)
       setReferredFiles((prev) => prev.filter((x) => x.fileId !== fileId))
     } catch {
       toast.error('Could not delete')
     }
-  }, [])
+  }, [workspaceId])
 
   const copyReferredFile = useCallback(async (fileId: string) => {
     try {
