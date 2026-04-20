@@ -9,6 +9,10 @@ import {
   PDF_MIME,
   PLAIN_MIME,
   URL_INGEST_ALLOWED_MIME_TYPES,
+  JPG_MIME,
+  PNG_MIME,
+  WEBP_MIME,
+  isImageMimeType,
 } from "../constants/upload-file-types.js";
 import { USER_FILE_QUOTA_MAX_BYTES_PER_FILE } from "../constants/user-file-limits.js";
 import * as fileRepository from "../repositories/file.repository.js";
@@ -18,6 +22,7 @@ import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
 import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
 import { scheduleExtractionAfterUpload } from "./extraction.service.js";
+import { scheduleImageIndexAfterUpload } from "./image-index.service.js";
 import { scheduleContentSummaryGeneration } from "./summary.service.js";
 import * as fileService from "./file.service.js";
 import * as storageService from "./storage.service.js";
@@ -101,8 +106,23 @@ function resolveEffectiveMime(
     const lower = path.toLowerCase();
     if (lower.endsWith(".pdf")) return PDF_MIME;
     if (lower.endsWith(".docx")) return DOCX_MIME;
+    if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return JPG_MIME;
+    if (lower.endsWith(".png")) return PNG_MIME;
+    if (lower.endsWith(".webp")) return WEBP_MIME;
   }
   return m;
+}
+
+// Purpose: derive a default filename from mime type for URL imports.
+// Ex input: "image/png"
+// Ex output: "image.png"
+function defaultFileNameByMime(mimeType: string): string {
+  if (mimeType === PDF_MIME) return "document.pdf";
+  if (mimeType === DOCX_MIME) return "document.docx";
+  if (mimeType === JPG_MIME) return "image.jpg";
+  if (mimeType === PNG_MIME) return "image.png";
+  if (mimeType === WEBP_MIME) return "image.webp";
+  return "file";
 }
 
 // Purpose: Stream the fetch Response body into a Buffer, aborting if Content-Length or streamed size exceeds maxBytes.
@@ -344,7 +364,7 @@ export async function processUrlIngestJob(
       uploadMime = effectiveMime;
       originalName = displayNameFromUrl(
         finalUrl,
-        effectiveMime === PDF_MIME ? "document.pdf" : "document.docx"
+        defaultFileNameByMime(effectiveMime)
       );
       if (
         effectiveMime === DOCX_MIME &&
@@ -357,6 +377,25 @@ export async function processUrlIngestJob(
         !originalName.toLowerCase().endsWith(".pdf")
       ) {
         originalName = `${originalName}.pdf`;
+      }
+      if (
+        effectiveMime === JPG_MIME &&
+        !originalName.toLowerCase().endsWith(".jpg") &&
+        !originalName.toLowerCase().endsWith(".jpeg")
+      ) {
+        originalName = `${originalName}.jpg`;
+      }
+      if (
+        effectiveMime === PNG_MIME &&
+        !originalName.toLowerCase().endsWith(".png")
+      ) {
+        originalName = `${originalName}.png`;
+      }
+      if (
+        effectiveMime === WEBP_MIME &&
+        !originalName.toLowerCase().endsWith(".webp")
+      ) {
+        originalName = `${originalName}.webp`;
       }
       contentHash = createHash("sha256").update(uploadBody).digest("hex");
     }
@@ -430,6 +469,8 @@ export async function processUrlIngestJob(
             ? "background extract → index"
             : shouldIndexContent && uploadMime === PLAIN_MIME
               ? "background index"
+              : shouldIndexContent && isImageMimeType(uploadMime)
+                ? "background image-index → embed"
               : "no index (reused or unsupported for index)",
       })
     );
@@ -451,6 +492,13 @@ export async function processUrlIngestJob(
       scheduleContentSummaryGeneration({
         contentId,
         extractedText,
+      });
+    } else if (isImageMimeType(uploadMime)) {
+      scheduleImageIndexAfterUpload({
+        contentId,
+        buffer: uploadBody,
+        mimeType: uploadMime,
+        originalName,
       });
     }
 
