@@ -7,7 +7,8 @@ import {
   type DocumentManagerCapability,
 } from '@embedpdf/plugin-document-manager'
 import type { PluginRegistry } from '@embedpdf/core'
-import { HiOutlineXMark } from 'react-icons/hi2'
+import { HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineXMark } from 'react-icons/hi2'
+import { BsFileEarmarkText } from 'react-icons/bs'
 import { fetchFileSignedUrl } from '../services/file-service'
 import { usePdfViewerStore } from '../store/pdf-viewer-store'
 
@@ -191,17 +192,24 @@ function PdfDocumentLoader({ label }: { label: string }) {
 }
 
 export function PdfViewerModal() {
-  const { fileId, fileName, close } = usePdfViewerStore()
+  const { fileId, fileName, summary, summaryStatus, close } = usePdfViewerStore()
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [documentReady, setDocumentReady] = useState(false)
+  const [summaryPanelOpen, setSummaryPanelOpen] = useState(true)
   const docListenersCleanup = useRef<(() => void) | null>(null)
+
+  const summaryText = summary?.trim() ?? ''
+  const showSummary = summaryStatus === 'ready' && summaryText.length > 0
+  const showPendingSummary = summaryStatus === 'pending'
+  const hasSummaryPanel = showSummary || showPendingSummary
 
   useEffect(() => {
     if (!fileId) {
       setUrl(null)
       setError(null)
       setDocumentReady(false)
+      setSummaryPanelOpen(true)
       docListenersCleanup.current?.()
       docListenersCleanup.current = null
       return
@@ -209,6 +217,7 @@ export function PdfViewerModal() {
     setUrl(null)
     setError(null)
     setDocumentReady(false)
+    setSummaryPanelOpen(true)
     docListenersCleanup.current?.()
     docListenersCleanup.current = null
     fetchFileSignedUrl(fileId)
@@ -261,20 +270,60 @@ export function PdfViewerModal() {
             </div>
 
             {/* Viewer */}
-            <div className="relative min-h-0 flex-1">
-              {!url && !error && (
-                <PdfDocumentLoader label="" />
-              )}
+            <div className="relative flex min-h-0 flex-1">
+              {hasSummaryPanel && summaryPanelOpen ? (
+                <aside className="relative z-10 w-80 shrink-0 border-r border-neutral-200 bg-neutral-50/80 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <Text size="2" weight="medium" className="text-neutral-800">
+                      Summary
+                    </Text>
+                    <button
+                      type="button"
+                      onClick={() => setSummaryPanelOpen(false)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-600 transition-colors hover:bg-neutral-100"
+                      aria-label="Hide summary panel"
+                    >
+                      <HiOutlineChevronLeft className="size-4" />
+                    </button>
+                  </div>
+                  <div className="overflow-y-auto pr-1">
+                    {showSummary ? (
+                      <Text size="2" className="whitespace-pre-wrap leading-6 text-neutral-700">
+                        {summaryText}
+                      </Text>
+                    ) : (
+                      <Text size="2" className="text-neutral-500">
+                        Generating summary...
+                      </Text>
+                    )}
+                  </div>
+                </aside>
+              ) : null}
 
-              {error && (
-                <div className="absolute inset-0 z-10 flex h-full items-center justify-center bg-white">
-                  <Text size="2" className="text-red-600">{error}</Text>
-                </div>
-              )}
+              {hasSummaryPanel && !summaryPanelOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setSummaryPanelOpen(true)}
+                  className="absolute bottom-3 left-3 z-20 inline-flex items-center gap-1 rounded-md bg-black px-2 py-1 text-xs font-medium text-white shadow-sm transition-colors hover:bg-black/80"
+                  aria-label="Show summary panel"
+                >
+                  <BsFileEarmarkText className="size-3.5" />
+                  Summary
+                </button>
+              ) : null}
 
-              {url && (
-                <>
-                 
+              <div className="relative min-h-0 flex-1">
+                {!url && !error && (
+                  <PdfDocumentLoader label="" />
+                )}
+
+                {error && (
+                  <div className="absolute inset-0 z-10 flex h-full items-center justify-center bg-white">
+                    <Text size="2" className="text-red-600">{error}</Text>
+                  </div>
+                )}
+
+                {url && (
                   <PDFViewer
                     key={url}
                     config={{ src: url, theme: pdfViewerTheme }}
@@ -291,8 +340,8 @@ export function PdfViewerModal() {
                       })
                     }}
                   />
-                </>
-              )}
+                )}
+              </div>
             </div>
           </motion.div>
         </motion.div>

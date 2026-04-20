@@ -7,13 +7,26 @@ import * as ragCompletionService from "./rag-completion.service.js";
 import { log } from "../utils/logger/index.js";
 
 const SUMMARY_SOURCE_MAX_CHARS = 24_000;
-const SUMMARY_OUT_MAX_CHARS = 420;
+const SUMMARY_OUT_MAX_CHARS = 1_200;
+
+function truncateSummary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const hardCut = text.slice(0, maxChars);
+  const sentenceCut = hardCut.lastIndexOf(". ");
+  if (sentenceCut >= Math.floor(maxChars * 0.6)) {
+    return hardCut.slice(0, sentenceCut + 1).trimEnd();
+  }
+  const wordCut = hardCut.lastIndexOf(" ");
+  if (wordCut >= Math.floor(maxChars * 0.8)) {
+    return hardCut.slice(0, wordCut).trimEnd();
+  }
+  return hardCut.trimEnd();
+}
 
 function normalizeSummary(text: string): string {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
-  if (cleaned.length <= SUMMARY_OUT_MAX_CHARS) return cleaned;
-  return `${cleaned.slice(0, SUMMARY_OUT_MAX_CHARS - 1).trimEnd()}…`;
+  return truncateSummary(cleaned, SUMMARY_OUT_MAX_CHARS);
 }
 
 function buildSummarySystemInstruction(): string {

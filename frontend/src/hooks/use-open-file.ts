@@ -20,7 +20,10 @@ export function useOpenFile() {
   return async (file: FileItem) => {
     const isPdf = file.type.toLowerCase().includes('pdf')
     if (isPdf) {
-      openPdf(file.id, file.name)
+      openPdf(file.id, file.name, {
+        summary: file.summary ?? null,
+        summaryStatus: file.summaryStatus,
+      })
     } else {
       const url = await fetchFileSignedUrl(file.id)
       window.open(url, '_blank', 'noopener')

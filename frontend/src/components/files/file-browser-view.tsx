@@ -1,4 +1,4 @@
-import { Text } from '@radix-ui/themes'
+import { Text, Tooltip } from '@radix-ui/themes'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
@@ -296,79 +296,80 @@ function FileCardGrid({
     : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      title={summaryHoverText(file)}
-      onClick={(e) => onMouseActivate(file, e)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onKeyActivate(file)
-        }
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        onMenu(file, e.clientX, e.clientY)
-      }}
-      draggable
-      onDragStart={(ev) => onDragStartFile(ev, file)}
-      className="group relative flex cursor-pointer flex-col gap-2 rounded-xl bg-white p-4 text-left transition-colors"
-    >
-      <button
-        type="button"
-        className={`absolute top-2 right-2 rounded-md p-1 ${menuBtn}`}
-        onClick={(e) => {
-          e.stopPropagation()
-          const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
-          onMenu(file, rect.left, rect.bottom + 4, rect.right)
+    <Tooltip content={summaryHoverText(file)} delayDuration={300}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={(e) => onMouseActivate(file, e)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onKeyActivate(file)
+          }
         }}
-        aria-label={`File actions for ${file.name}`}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onMenu(file, e.clientX, e.clientY)
+        }}
+        draggable
+        onDragStart={(ev) => onDragStartFile(ev, file)}
+        className="group relative flex cursor-pointer flex-col gap-2 rounded-xl bg-white p-4 text-left transition-colors"
       >
-        ⋯
-      </button>
-      <img
-        src={fileIcon(file.type)}
-        alt=""
-        className="aspect-square w-full rounded-md object-cover"
-      />
-      <div className="flex w-full flex-col gap-0.5 overflow-hidden">
-        <Text
-          size="2"
-          className={`w-full truncate text-left transition-all duration-200 group-hover:font-semibold ${selText}`}
+        <button
+          type="button"
+          className={`absolute top-2 right-2 rounded-md p-1 ${menuBtn}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
+            onMenu(file, rect.left, rect.bottom + 4, rect.right)
+          }}
+          aria-label={`File actions for ${file.name}`}
         >
-          {file.name}
-        </Text>
-        <div
-          className={`flex items-center gap-1 text-xs transition-all duration-200 group-hover:font-semibold ${selMuted}`}
-        >
-          <span>{formatFileSize(file.size)}</span>
-          <span>&middot;</span>
-          <span>{formatDate(file.createdAt, dateStyle)}</span>
-        </div>
-        {showWorkspaceTags ? (
-          <div className="min-w-0 text-xs">
-            {workspaceLinkTo ? (
-              <Link
-                to={workspaceLinkTo}
-                onClick={(e) => e.stopPropagation()}
-                className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
-                title={workspaceLabel ?? undefined}
-              >
-                {workspaceLabel}
-              </Link>
-            ) : (
-              <span
-                className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
-                title="Not in a workspace"
-              >
-                {workspaceLabel ?? 'No workspace'}
-              </span>
-            )}
+          ⋯
+        </button>
+        <img
+          src={fileIcon(file.type)}
+          alt=""
+          className="aspect-square w-full rounded-md object-cover"
+        />
+        <div className="flex w-full flex-col gap-0.5 overflow-hidden">
+          <Text
+            size="2"
+            className={`w-full truncate text-left transition-all duration-200 group-hover:font-semibold ${selText}`}
+          >
+            {file.name}
+          </Text>
+          <div
+            className={`flex items-center gap-1 text-xs transition-all duration-200 group-hover:font-semibold ${selMuted}`}
+          >
+            <span>{formatFileSize(file.size)}</span>
+            <span>&middot;</span>
+            <span>{formatDate(file.createdAt, dateStyle)}</span>
           </div>
-        ) : null}
+          {showWorkspaceTags ? (
+            <div className="min-w-0 text-xs">
+              {workspaceLinkTo ? (
+                <Link
+                  to={workspaceLinkTo}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
+                  title={workspaceLabel ?? undefined}
+                >
+                  {workspaceLabel}
+                </Link>
+              ) : (
+                <span
+                  className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
+                  title="Not in a workspace"
+                >
+                  {workspaceLabel ?? 'No workspace'}
+                </span>
+              )}
+            </div>
+          ) : null}
+        </div>
       </div>
-    </div>
+    </Tooltip>
   )
 }
 
@@ -412,106 +413,107 @@ function FileRowList({
     : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700'
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      title={summaryHoverText(file)}
-      onClick={(e) => onMouseActivate(file, e)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+    <Tooltip content={summaryHoverText(file)} delayDuration={300}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={(e) => onMouseActivate(file, e)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onKeyActivate(file)
+          }
+        }}
+        onContextMenu={(e) => {
           e.preventDefault()
-          onKeyActivate(file)
-        }
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        onMenu(file, e.clientX, e.clientY)
-      }}
-      draggable
-      onDragStart={(ev) => onDragStartFile(ev, file)}
-      className="group grid w-full cursor-pointer items-center rounded-lg bg-white px-0 py-3 text-left transition-colors"
-      style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
-    >
-      <div className="flex min-w-0 items-center gap-3">
-        <img src={fileIcon(file.type)} alt="" className="h-8 w-8 shrink-0" />
-        <div className="min-w-0">
+          onMenu(file, e.clientX, e.clientY)
+        }}
+        draggable
+        onDragStart={(ev) => onDragStartFile(ev, file)}
+        className="group grid w-full cursor-pointer items-center rounded-lg bg-white px-0 py-3 text-left transition-colors"
+        style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <img src={fileIcon(file.type)} alt="" className="h-8 w-8 shrink-0" />
+          <div className="min-w-0">
+            <Text
+              size="2"
+              className={`min-w-0 truncate transition-all duration-200 group-hover:font-semibold ${selText}`}
+            >
+              {file.name}
+            </Text>
+            {inlineWorkspaceChip ? (
+              <div className="mt-0.5 min-w-0">
+                {workspaceLinkTo ? (
+                  <Link
+                    to={workspaceLinkTo}
+                    onClick={(e) => e.stopPropagation()}
+                    className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
+                    title={workspaceLabel ?? undefined}
+                  >
+                    {workspaceLabel}
+                  </Link>
+                ) : (
+                  <span
+                    className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
+                    title="Not in a workspace"
+                  >
+                    {workspaceLabel ?? 'No workspace'}
+                  </span>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {showWorkspaceTags ? (
+          <div className="min-w-0 justify-self-start">
+            {workspaceLinkTo ? (
+              <Link
+                to={workspaceLinkTo}
+                onClick={(e) => e.stopPropagation()}
+                className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
+                title={workspaceLabel ?? undefined}
+              >
+                {workspaceLabel}
+              </Link>
+            ) : (
+              <span
+                className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
+                title="Not in a workspace"
+              >
+                {workspaceLabel ?? 'No workspace'}
+              </span>
+            )}
+          </div>
+        ) : null}
+        {showSizeColumn ? (
           <Text
-            size="2"
-            className={`min-w-0 truncate transition-all duration-200 group-hover:font-semibold ${selText}`}
+            size="1"
+            className={`transition-all duration-200 group-hover:font-bold ${selMuted}`}
           >
-            {file.name}
+            {formatFileSize(file.size)}
           </Text>
-          {inlineWorkspaceChip ? (
-            <div className="mt-0.5 min-w-0">
-              {workspaceLinkTo ? (
-                <Link
-                  to={workspaceLinkTo}
-                  onClick={(e) => e.stopPropagation()}
-                  className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
-                  title={workspaceLabel ?? undefined}
-                >
-                  {workspaceLabel}
-                </Link>
-              ) : (
-                <span
-                  className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
-                  title="Not in a workspace"
-                >
-                  {workspaceLabel ?? 'No workspace'}
-                </span>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </div>
-      {showWorkspaceTags ? (
-        <div className="min-w-0 justify-self-start">
-          {workspaceLinkTo ? (
-            <Link
-              to={workspaceLinkTo}
-              onClick={(e) => e.stopPropagation()}
-              className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipLink}`}
-              title={workspaceLabel ?? undefined}
-            >
-              {workspaceLabel}
-            </Link>
-          ) : (
-            <span
-              className={`inline-block max-w-full truncate rounded-md px-2 py-0.5 ${chipMuted}`}
-              title="Not in a workspace"
-            >
-              {workspaceLabel ?? 'No workspace'}
-            </span>
-          )}
-        </div>
-      ) : null}
-      {showSizeColumn ? (
+        ) : null}
         <Text
           size="1"
-          className={`transition-all duration-200 group-hover:font-bold ${selMuted}`}
+          className={`justify-self-end text-right transition-all duration-200 group-hover:font-bold ${selMuted}`}
         >
-          {formatFileSize(file.size)}
+          {formatDate(file.createdAt, dateStyle)}
         </Text>
-      ) : null}
-      <Text
-        size="1"
-        className={`justify-self-end text-right transition-all duration-200 group-hover:font-bold ${selMuted}`}
-      >
-        {formatDate(file.createdAt, dateStyle)}
-      </Text>
-      <button
-        type="button"
-        className={`justify-self-end rounded-md p-1 ${menuBtn}`}
-        onClick={(e) => {
-          e.stopPropagation()
-          const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
-          onMenu(file, rect.left, rect.bottom + 4, rect.right)
-        }}
-        aria-label={`File actions for ${file.name}`}
-      >
-        ⋯
-      </button>
-    </div>
+        <button
+          type="button"
+          className={`justify-self-end rounded-md p-1 ${menuBtn}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect()
+            onMenu(file, rect.left, rect.bottom + 4, rect.right)
+          }}
+          aria-label={`File actions for ${file.name}`}
+        >
+          ⋯
+        </button>
+      </div>
+    </Tooltip>
   )
 }
 
