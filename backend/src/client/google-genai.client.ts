@@ -104,3 +104,50 @@ export async function googleGenerateRagCompletion(params: {
     },
   };
 }
+
+export async function googleDescribeImage(params: {
+  model: string;
+  systemInstruction: string;
+  userMessage: string;
+  temperature: number;
+  imageMimeType: string;
+  imageBytes: Buffer;
+}): Promise<RagCompletionResult> {
+  const ai = getGoogleGenAIClient();
+  const response = await ai.models.generateContent({
+    model: params.model,
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: params.userMessage },
+          {
+            inlineData: {
+              mimeType: params.imageMimeType,
+              data: params.imageBytes.toString("base64"),
+            },
+          },
+        ],
+      },
+    ],
+    config: {
+      systemInstruction: params.systemInstruction,
+      temperature: params.temperature,
+    },
+  });
+  const text = response.text?.trim();
+  if (!text) {
+    throw new Error("Gemini returned empty image description");
+  }
+  const u = response.usageMetadata;
+  return {
+    text,
+    model: params.model,
+    modelVersion: response.modelVersion,
+    usage: {
+      promptTokens: u?.promptTokenCount,
+      completionTokens: u?.candidatesTokenCount,
+      totalTokens: u?.totalTokenCount,
+    },
+  };
+}

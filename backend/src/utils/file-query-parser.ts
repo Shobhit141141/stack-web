@@ -102,7 +102,10 @@ export function parseFileListQuery(qs: Record<string, unknown>): ParsedFileListQ
   if (qs.type !== undefined && qs.type !== null && String(qs.type) !== "") {
     const t = String(qs.type).toLowerCase();
     if (!isFileShortType(t)) {
-      throw new HttpError(400, "Invalid type filter (use pdf or docx)");
+      throw new HttpError(
+        400,
+        "Invalid type filter (use pdf, docx, jpg, png, or webp)"
+      );
     }
     type = t;
   }

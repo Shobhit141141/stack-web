@@ -4,6 +4,7 @@ import { USER_FILE_QUOTA_MAX_FILES } from "../constants/user-file-limits.js";
 import { enqueueUrlIngest } from "../queue/url-ingest.queue.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import { scheduleExtractionAfterUpload } from "../services/extraction.service.js";
+import { scheduleImageIndexAfterUpload } from "../services/image-index.service.js";
 import * as activityService from "../services/activity.service.js";
 import * as deleteQueueService from "../services/delete-queue.service.js";
 import * as fileService from "../services/file.service.js";
@@ -16,6 +17,11 @@ import {
 } from "../utils/file-query-parser.js";
 import { mapWithConcurrency } from "../utils/map-with-concurrency.js";
 import { isUuid } from "../utils/uuid.js";
+import {
+  DOCX_MIME,
+  PDF_MIME,
+  isImageMimeType,
+} from "../constants/upload-file-types.js";
 
 /** Batches of this size or smaller run fully in parallel; larger batches cap at this concurrency. */
 const UPLOAD_CONCURRENCY = 5;
@@ -478,12 +484,21 @@ export async function uploadFile(
         })
       );
       if (uploaded.shouldIndexContent) {
-        scheduleExtractionAfterUpload({
-          contentId: uploaded.contentId,
-          buffer: file.buffer,
-          mimeType: file.mimetype,
-          originalName: file.originalname,
-        });
+        if (file.mimetype === PDF_MIME || file.mimetype === DOCX_MIME) {
+          scheduleExtractionAfterUpload({
+            contentId: uploaded.contentId,
+            buffer: file.buffer,
+            mimeType: file.mimetype,
+            originalName: file.originalname,
+          });
+        } else if (isImageMimeType(file.mimetype)) {
+          scheduleImageIndexAfterUpload({
+            contentId: uploaded.contentId,
+            buffer: file.buffer,
+            mimeType: file.mimetype,
+            originalName: file.originalname,
+          });
+        }
       }
     }
 

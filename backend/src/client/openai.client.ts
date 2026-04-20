@@ -67,3 +67,49 @@ export async function openaiGenerateRagCompletion(params: {
     },
   };
 }
+
+export async function openaiDescribeImage(params: {
+  model: string;
+  systemInstruction: string;
+  userMessage: string;
+  temperature: number;
+  imageMimeType: string;
+  imageBytes: Buffer;
+}): Promise<RagCompletionResult> {
+  const openai = getOpenAIClient();
+  const dataUrl = `data:${params.imageMimeType};base64,${params.imageBytes.toString("base64")}`;
+  const res = await openai.chat.completions.create({
+    model: params.model,
+    messages: [
+      { role: "system", content: params.systemInstruction },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: params.userMessage },
+          {
+            type: "image_url",
+            image_url: {
+              url: dataUrl,
+            },
+          },
+        ],
+      },
+    ],
+    temperature: params.temperature,
+  });
+  const text = res.choices[0]?.message?.content?.trim();
+  if (!text) {
+    throw new Error("OpenAI returned empty image description");
+  }
+  const u = res.usage;
+  return {
+    text,
+    model: params.model,
+    modelVersion: res.model,
+    usage: {
+      promptTokens: u?.prompt_tokens,
+      completionTokens: u?.completion_tokens,
+      totalTokens: u?.total_tokens,
+    },
+  };
+}

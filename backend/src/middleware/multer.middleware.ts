@@ -9,7 +9,14 @@ export const UPLOAD_MAX_FILES_PER_REQUEST = 10;
 
 function extAllowed(name: string): boolean {
   const lower = name.toLowerCase();
-  return lower.endsWith(".pdf") || lower.endsWith(".docx");
+  return (
+    lower.endsWith(".pdf") ||
+    lower.endsWith(".docx") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".png") ||
+    lower.endsWith(".webp")
+  );
 }
 
 export const uploadFileMemory = multer({
@@ -23,6 +30,6 @@ export const uploadFileMemory = multer({
       cb(null, true);
       return;
     }
-    cb(new HttpError(400, "Only PDF and DOCX files are allowed"));
+    cb(new HttpError(400, "Only PDF, DOCX, JPG, PNG, and WEBP files are allowed"));
   },
 }).array("file", UPLOAD_MAX_FILES_PER_REQUEST);

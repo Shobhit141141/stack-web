@@ -1,12 +1,20 @@
 export const FILE_SHORT_TYPE_TO_MIME = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  jpg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
 } as const;
 
 export type FileShortType = keyof typeof FILE_SHORT_TYPE_TO_MIME;
 
 export const PDF_MIME = FILE_SHORT_TYPE_TO_MIME.pdf;
 export const DOCX_MIME = FILE_SHORT_TYPE_TO_MIME.docx;
+export const JPG_MIME = FILE_SHORT_TYPE_TO_MIME.jpg;
+export const PNG_MIME = FILE_SHORT_TYPE_TO_MIME.png;
+export const WEBP_MIME = FILE_SHORT_TYPE_TO_MIME.webp;
+
+export const IMAGE_MIME_TYPES = new Set<string>([JPG_MIME, PNG_MIME, WEBP_MIME]);
 
 export const HTML_MIME = "text/html";
 export const PLAIN_MIME = "text/plain";
@@ -24,4 +32,8 @@ export const URL_INGEST_ALLOWED_MIME_TYPES = new Set<string>([
 
 export function isFileShortType(value: string): value is FileShortType {
   return Object.hasOwn(FILE_SHORT_TYPE_TO_MIME, value);
+}
+
+export function isImageMimeType(mimeType: string): boolean {
+  return IMAGE_MIME_TYPES.has(mimeType.toLowerCase().trim());
 }
