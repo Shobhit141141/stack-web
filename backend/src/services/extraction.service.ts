@@ -10,6 +10,7 @@ import {
 } from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
 import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
+import { scheduleContentSummaryGeneration } from "./summary.service.js";
 
 export type ExtractResult = {
   text: string;
@@ -135,6 +136,10 @@ export function scheduleExtractionAfterUpload(ctx: {
           ].join("\n")
         );
         scheduleDocumentIndexAfterExtraction(ctx.contentId, r.cleanedText);
+        scheduleContentSummaryGeneration({
+          contentId: ctx.contentId,
+          extractedText: r.cleanedText,
+        });
       })
       .catch((e) => {
         const msg = e instanceof Error ? e.message : String(e);

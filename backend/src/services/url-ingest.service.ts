@@ -18,6 +18,7 @@ import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
 import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
 import { scheduleExtractionAfterUpload } from "./extraction.service.js";
+import { scheduleContentSummaryGeneration } from "./summary.service.js";
 import * as fileService from "./file.service.js";
 import * as storageService from "./storage.service.js";
 import * as workspaceService from "./workspace.service.js";
@@ -445,10 +446,12 @@ export async function processUrlIngestJob(
         originalName,
       });
     } else if (uploadMime === PLAIN_MIME) {
-      scheduleDocumentIndexAfterExtraction(
+      const extractedText = uploadBody.toString("utf8");
+      scheduleDocumentIndexAfterExtraction(contentId, extractedText);
+      scheduleContentSummaryGeneration({
         contentId,
-        uploadBody.toString("utf8")
-      );
+        extractedText,
+      });
     }
 
     return { fileId: file.id, fileName: file.originalName };

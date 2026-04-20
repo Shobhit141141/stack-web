@@ -253,6 +253,15 @@ function formatDate(iso: string, style: DateStyle): string {
   return style === 'short' ? formatShortDate(iso) : formatRelativeTime(iso)
 }
 
+function summaryHoverText(file: FileItem): string {
+  if (file.summaryStatus === 'pending') return 'Generating summary...'
+  if (file.summaryStatus === 'ready' && file.summary?.trim()) {
+    return file.summary.trim()
+  }
+  if (!file.summaryStatus && file.summary?.trim()) return file.summary.trim()
+  return 'Summary unavailable'
+}
+
 function FileCardGrid({
   file,
   dateStyle,
@@ -290,6 +299,7 @@ function FileCardGrid({
     <div
       role="button"
       tabIndex={0}
+      title={summaryHoverText(file)}
       onClick={(e) => onMouseActivate(file, e)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -405,6 +415,7 @@ function FileRowList({
     <div
       role="button"
       tabIndex={0}
+      title={summaryHoverText(file)}
       onClick={(e) => onMouseActivate(file, e)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

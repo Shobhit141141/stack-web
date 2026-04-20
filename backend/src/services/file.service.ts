@@ -261,6 +261,8 @@ export async function listUserFiles(
     type: string;
     size: number;
     workspaceId: string | null;
+    summary: string | null;
+    summaryStatus: "pending" | "ready" | "failed";
     createdAt: string;
   }>;
   pagination: { page: number; total: number };
@@ -287,6 +289,8 @@ export async function listUserFiles(
       type: publicFileTypeLabel(row.originalName, row.mimeType),
       size: sizeToSafeNumber(row.size),
       workspaceId: row.workspaceId ?? null,
+      summary: row.contentRef.summary ?? null,
+      summaryStatus: row.contentRef.summaryStatus,
       createdAt: row.createdAt.toISOString(),
     })),
     pagination: {

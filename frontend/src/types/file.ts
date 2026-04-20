@@ -4,6 +4,8 @@ export type FileItem = {
   type: string
   size: number
   workspaceId: string | null
+  summary?: string | null
+  summaryStatus?: 'pending' | 'ready' | 'failed'
   createdAt: string
 }
 

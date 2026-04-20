@@ -11,6 +11,12 @@ const listSelect = {
   size: true,
   workspaceId: true,
   createdAt: true,
+  contentRef: {
+    select: {
+      summary: true,
+      summaryStatus: true,
+    },
+  },
 } as const;
 
 export type FileListRow = Prisma.FileGetPayload<{ select: typeof listSelect }>;
@@ -78,6 +84,48 @@ export async function createContent(hash: string, db: FileDbClient = prisma) {
   return rows[0]!;
 }
 
+export async function markContentSummaryPending(
+  contentId: string
+): Promise<void> {
+  await prisma.content.update({
+    where: { id: contentId },
+    data: {
+      summaryStatus: "pending",
+      summary: null,
+      summaryUpdatedAt: new Date(),
+    },
+    select: { id: true },
+  });
+}
+
+export async function markContentSummaryReady(params: {
+  contentId: string;
+  summary: string;
+}): Promise<void> {
+  await prisma.content.update({
+    where: { id: params.contentId },
+    data: {
+      summaryStatus: "ready",
+      summary: params.summary,
+      summaryUpdatedAt: new Date(),
+    },
+    select: { id: true },
+  });
+}
+
+export async function markContentSummaryFailed(
+  contentId: string
+): Promise<void> {
+  await prisma.content.update({
+    where: { id: contentId },
+    data: {
+      summaryStatus: "failed",
+      summaryUpdatedAt: new Date(),
+    },
+    select: { id: true },
+  });
+}
+
 export async function countFiles(where: Prisma.FileWhereInput): Promise<number> {
   return prisma.file.count({ where });
 }
@@ -109,6 +157,12 @@ export async function findFileByIdForUser(id: string, userId: string) {
       storagePath: true,
       workspaceId: true,
       createdAt: true,
+      contentRef: {
+        select: {
+          summary: true,
+          summaryStatus: true,
+        },
+      },
     },
   });
 }
