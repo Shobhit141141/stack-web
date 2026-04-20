@@ -7,7 +7,7 @@ import {
   type DocumentManagerCapability,
 } from '@embedpdf/plugin-document-manager'
 import type { PluginRegistry } from '@embedpdf/core'
-import { HiOutlineChevronLeft, HiOutlineChevronRight, HiOutlineXMark } from 'react-icons/hi2'
+import { HiOutlineChevronLeft, HiOutlineXMark } from 'react-icons/hi2'
 import { BsFileEarmarkText } from 'react-icons/bs'
 import { fetchFileSignedUrl } from '../services/file-service'
 import { usePdfViewerStore } from '../store/pdf-viewer-store'

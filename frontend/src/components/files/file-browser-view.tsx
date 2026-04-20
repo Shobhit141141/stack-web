@@ -6,6 +6,7 @@ import type { DragEvent } from 'react'
 import type { FileItem } from '../../types/file'
 import type { BrowserViewMode } from '../../hooks/use-browser-view-mode'
 import type { WorkspaceItem } from '../../services/workspace-service'
+import { useImageThumbnailUrls } from '../../hooks/use-image-thumbnail-urls'
 import { useMediaQuery } from '../../hooks/use-media-query'
 import {
   FILE_LIST_GRID_TEMPLATE,
@@ -14,6 +15,7 @@ import {
   formatFileSize,
   formatRelativeTime,
   formatShortDate,
+  isImageFileType,
 } from '../../utils/file-display'
 import { Skeleton } from '../ui/skeleton'
 
@@ -272,6 +274,7 @@ function FileCardGrid({
   showWorkspaceTags,
   workspaceLabel,
   workspaceLinkTo,
+  previewUrl,
 }: {
   file: FileItem
   dateStyle: DateStyle
@@ -282,6 +285,7 @@ function FileCardGrid({
   showWorkspaceTags: boolean
   workspaceLabel: string | null
   workspaceLinkTo: string | null
+  previewUrl?: string
 }) {
   const selText = selected ? 'text-red-600' : 'text-neutral-900'
   const selMuted = selected ? 'text-red-600' : 'text-neutral-500'
@@ -328,7 +332,7 @@ function FileCardGrid({
           ⋯
         </button>
         <img
-          src={fileIcon(file.type)}
+          src={isImageFileType(file.type) ? (previewUrl ?? fileIcon(file.type)) : fileIcon(file.type)}
           alt=""
           className="aspect-square w-full rounded-md object-cover"
         />
@@ -386,6 +390,7 @@ function FileRowList({
   inlineWorkspaceChip,
   workspaceLabel,
   workspaceLinkTo,
+  previewUrl,
 }: {
   file: FileItem
   dateStyle: DateStyle
@@ -399,6 +404,7 @@ function FileRowList({
   inlineWorkspaceChip: boolean
   workspaceLabel: string | null
   workspaceLinkTo: string | null
+  previewUrl?: string
 }) {
   const selText = selected ? 'text-red-600' : 'text-neutral-900'
   const selMuted = selected ? 'text-red-600' : 'text-neutral-500'
@@ -434,7 +440,11 @@ function FileRowList({
         style={{ gridTemplateColumns: `${listGridTemplate} 28px`, gap: '1rem' }}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <img src={fileIcon(file.type)} alt="" className="h-8 w-8 shrink-0" />
+          <img
+            src={isImageFileType(file.type) ? (previewUrl ?? fileIcon(file.type)) : fileIcon(file.type)}
+            alt=""
+            className="h-8 w-8 shrink-0 rounded object-cover"
+          />
           <div className="min-w-0">
             <Text
               size="2"
@@ -539,6 +549,12 @@ export function FileBrowserView({
   const [menuState, setMenuState] = useState<FileActionsMenuState | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const isMobile = useMediaQuery('(max-width: 639px)')
+  const thumbnailUrls = useImageThumbnailUrls(
+    files.map((f) => ({
+      fileId: f.id,
+      type: f.type,
+    })),
+  )
 
   const showWorkspaceColumn = showWorkspaceTags && !isMobile
   const showSizeColumn = !isMobile
@@ -731,6 +747,7 @@ export function FileBrowserView({
                 showWorkspaceTags={showWorkspaceTags}
                 workspaceLabel={label}
                 workspaceLinkTo={linkTo}
+                previewUrl={thumbnailUrls.get(f.id)}
               />
             )
           })}
@@ -784,6 +801,7 @@ export function FileBrowserView({
             inlineWorkspaceChip={isMobile && showWorkspaceTags}
             workspaceLabel={label}
             workspaceLinkTo={linkTo}
+            previewUrl={thumbnailUrls.get(f.id)}
           />
         )
       })}

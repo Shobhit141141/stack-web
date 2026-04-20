@@ -134,8 +134,8 @@ export function RecentsGuidelinesBanner({ previewMode = false }: RecentsGuidelin
           }
         >
           <p>
-            Sidebar <span className="font-medium text-neutral-800">Upload</span>. PDF/DOCX, max 10
-            files × 5 MB. Set workspace in the panel.
+            Sidebar <span className="font-medium text-neutral-800">Upload</span>. PDF/DOCX/JPG/PNG/WEBP,
+            max 10 files × 5 MB. Set workspace in the panel.
           </p>
         </FeatureCard>
 
@@ -150,8 +150,8 @@ export function RecentsGuidelinesBanner({ previewMode = false }: RecentsGuidelin
         >
           <p>
             Open Upload → <span className="font-medium text-neutral-800">Import from URL</span>.
-            Paste <span className="font-mono text-neutral-800">https://…</span>, pick workspace,
-            import.
+            Paste file/image <span className="font-mono text-neutral-800">https://…</span>, pick
+            workspace, import.
           </p>
         </FeatureCard>
 

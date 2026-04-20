@@ -4,7 +4,19 @@ export const FILE_LIST_GRID_TEMPLATE = 'minmax(0,1fr) 5rem 5rem'
 /** name, workspace chip column, size, date — ellipsis column added in component */
 export const FILE_LIST_GRID_WITH_WORKSPACE = 'minmax(0,1fr) minmax(5.5rem,10rem) 5rem 5rem'
 
+export function isImageFileType(type: string): boolean {
+  const t = type.toLowerCase()
+  return (
+    t.includes('image/') ||
+    t.includes('jpg') ||
+    t.includes('jpeg') ||
+    t.includes('png') ||
+    t.includes('webp')
+  )
+}
+
 export function fileIcon(type: string): string {
+  if (isImageFileType(type)) return '/icons/cloud.svg'
   const t = type.toLowerCase()
   if (t.includes('pdf')) return '/icons/pdf.svg'
   if (t.includes('doc') || t.includes('word')) return '/icons/docx-file.svg'

@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { HiOutlineMagnifyingGlass } from 'react-icons/hi2'
 import { semanticSearch, type SearchResult } from '../services/search-service'
-import { usePdfViewerStore } from '../store/pdf-viewer-store'
+import { openKnownFile } from '../hooks/use-open-file'
+import { useImageThumbnailUrls } from '../hooks/use-image-thumbnail-urls'
+import { fileIcon, isImageFileType } from '../utils/file-display'
 import { Skeleton } from './ui/skeleton'
-
-function fileIcon(type: string): string {
-  const t = type.toLowerCase()
-  if (t.includes('pdf')) return '/icons/pdf.svg'
-  if (t.includes('doc') || t.includes('word')) return '/icons/docx-file.svg'
-  return '/icons/cloud.svg'
-}
 
 export function SearchBar() {
   const [query, setQuery] = useState('')
@@ -18,7 +13,12 @@ export function SearchBar() {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
-  const openPdf = usePdfViewerStore((s) => s.open)
+  const thumbnailUrls = useImageThumbnailUrls(
+    results.map((r) => ({
+      fileId: r.fileId,
+      type: r.type,
+    })),
+  )
 
   const search = useCallback(async (q: string) => {
     if (q.trim().length < 2) {
@@ -55,13 +55,7 @@ export function SearchBar() {
   const handleSelect = (result: SearchResult) => {
     setOpen(false)
     setQuery('')
-    const isPdf = result.type.toLowerCase().includes('pdf')
-    if (isPdf) {
-      openPdf(result.fileId, result.fileName)
-    } else {
-      // for non-pdf, could open in new tab — for now just open pdf viewer
-      openPdf(result.fileId, result.fileName)
-    }
+    void openKnownFile(result.fileId, result.fileName)
   }
 
   // close dropdown on outside click
@@ -133,7 +127,17 @@ export function SearchBar() {
                   onClick={() => handleSelect(r)}
                   className="flex w-full cursor-pointer items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-neutral-50"
                 >
-                  <img src={fileIcon(r.type)} alt="" className="mt-0.5 h-8 w-8 shrink-0" />
+                  <img
+                    src={
+                      isImageFileType(r.type)
+                        ? (thumbnailUrls.get(r.fileId) ?? fileIcon(r.type))
+                        : fileIcon(r.type)
+                    }
+                    alt=""
+                    className={`mt-0.5 h-8 w-8 shrink-0 rounded-md ${
+                      isImageFileType(r.type) ? 'object-cover' : ''
+                    }`}
+                  />
                   <div className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-neutral-900">
                       {r.fileName}

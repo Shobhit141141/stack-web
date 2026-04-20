@@ -6,6 +6,7 @@ import { useAuth } from '../auth/useAuth'
 import { AppSidebar } from '../components/AppSidebar'
 import { AppTopBar } from '../components/AppTopBar'
 import { GlobalLinkPaste } from '../components/GlobalLinkPaste'
+import { ImageViewerModal } from '../components/ImageViewerModal'
 import { PdfViewerModal } from '../components/PdfViewerModal'
 import { UploadModal } from '../components/UploadModal'
 import { VoiceButton } from '../components/VoiceButton'
@@ -47,6 +48,7 @@ export function RootLayout() {
         }}
       />
       <PdfViewerModal />
+      <ImageViewerModal />
       <UploadModal />
       <VoiceButton />
       {showFullLoader ? <FullScreenLoader /> : null}

@@ -155,8 +155,15 @@ export function UploadModal() {
           allowedFileTypes: [
             '.pdf',
             '.docx',
+            '.jpg',
+            '.jpeg',
+            '.png',
+            '.webp',
             'application/pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'image/jpeg',
+            'image/png',
+            'image/webp',
           ],
         },
         autoProceed: false,
@@ -173,7 +180,7 @@ export function UploadModal() {
           width: '100%',
           height: 420,
           proudlyDisplayPoweredByUppy: false,
-          note: `PDF and Word, up to ${(maxBytesPerFile / (1024 * 1024)).toFixed(0)} MB each. You can add ${remainingSlots} more file${remainingSlots === 1 ? '' : 's'} (${usedFiles}/${maxFilesAllowed} in use). Workspace applies to uploads below.`,
+          note: `PDF, Word, JPG, PNG, and WEBP up to ${(maxBytesPerFile / (1024 * 1024)).toFixed(0)} MB each. You can add ${remainingSlots} more file${remainingSlots === 1 ? '' : 's'} (${usedFiles}/${maxFilesAllowed} in use). Workspace applies to uploads below.`,
           theme: 'light',
         })
 
