@@ -1,11 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { env, ragCompletionModelDefault } from "../config/env.js";
-import {
-  buildAskSystemInstruction,
-  buildAskUserMessage,
-  buildGeneralKnowledgeSystemInstruction,
-  buildGeneralKnowledgeUserMessage,
-} from "../rag/prompt.js";
+import { buildAskSystemInstruction, buildAskUserMessage } from "../rag/prompt.js";
 import * as embeddingService from "./embedding.service.js";
 import * as ragCompletionService from "./rag-completion.service.js";
 import * as fileRepository from "../repositories/file.repository.js";
@@ -140,28 +135,26 @@ function formatScoresFromPacks(
     .join("; ");
 }
 
-const FILES_META_BLOCK_MAX = 25;
+type MetadataIntent =
+  | "uploadedAt"
+  | "fileType"
+  | "fileSize"
+  | "fileName"
+  | "source"
+  | "count"
+  | "list";
 
-// Shown when the RAG pipeline cannot answer from the user's files. The next
-// user turn is checked against AFFIRMATIVE_RE / NEGATIVE_RE to honor consent.
-// Keep this string stable — we detect it in chat history to gate the fallback.
-export const GENERAL_KNOWLEDGE_CONSENT_PROMPT =
-  "I couldn't find this in your files. Want me to answer from general knowledge instead? Reply \"yes\" to continue.";
-
-const GENERAL_KNOWLEDGE_DECLINED_ANSWER =
-  "Okay, I'll stay within your files.";
-
-const GENERAL_KNOWLEDGE_EMPTY_ANSWER =
-  "From general knowledge (not in your files):\nI don't have a reliable answer for that.";
-
-const AFFIRMATIVE_RE =
-  /^(y|yes|yeah|yep|yup|ya|sure|ok|okay|please|please do|go ahead|do it|continue|proceed|use general(?: knowledge)?|answer anyway|yes please)[.! ]*$/i;
-
-const NEGATIVE_RE =
-  /^(n|no|nope|nah|don't|do not|skip|stop|cancel|never mind|nvm)[.! ]*$/i;
-
-function isConsentPromptMessage(content: string): boolean {
-  return content.trim() === GENERAL_KNOWLEDGE_CONSENT_PROMPT;
+function detectMetadataIntent(query: string): MetadataIntent | null {
+  const q = query.toLowerCase();
+  if (/\b(how many|count|number of files)\b/.test(q)) return "count";
+  if (/\b(list|show|what files do i have|which files)\b/.test(q)) return "list";
+  if (/\b(uploaded|when.*(uploaded|added|created)|created at|upload time)\b/.test(q))
+    return "uploadedAt";
+  if (/\b(type|format|mime)\b/.test(q)) return "fileType";
+  if (/\b(size|how big|file size|kb|mb|gb)\b/.test(q)) return "fileSize";
+  if (/\b(name|filename|file name)\b/.test(q)) return "fileName";
+  if (/\b(source|url|uploaded or link|link)\b/.test(q)) return "source";
+  return null;
 }
 
 function formatDateTimeShort(d: Date): string {
@@ -199,117 +192,77 @@ function dedupeByFileId<T extends { id: string }>(rows: T[]): T[] {
   return out;
 }
 
-async function saveConversationTurn(params: {
-  conversationId: string;
-  userContent: string;
-  assistantContent: string;
-  sources?: AskSource[];
-}): Promise<void> {
-  await conversationRepository.createMessage({
-    conversationId: params.conversationId,
-    role: "user",
-    content: params.userContent,
-  });
-  await conversationRepository.createMessage({
-    conversationId: params.conversationId,
-    role: "assistant",
-    content: params.assistantContent,
-    ...(params.sources && params.sources.length > 0
-      ? { sources: params.sources }
-      : {}),
-  });
-  await conversationRepository.touchConversationUpdatedAt(
-    params.conversationId
-  );
-}
-
-// If the last assistant message was the "want general knowledge?" consent
-// prompt, treat the current user message as a yes/no reply instead of a new
-// retrieval query. Returns null when no consent context exists.
-async function handleGeneralKnowledgeConsentFollowup(params: {
-  conversationId: string;
-  rawQuery: string;
-  displayQuery: string | undefined;
-  filesMetaBlock: string;
-}): Promise<AskResult | null> {
-  const q = params.rawQuery.trim();
-  const affirmative = AFFIRMATIVE_RE.test(q);
-  const negative = NEGATIVE_RE.test(q);
-  if (!affirmative && !negative) return null;
-
-  const recent = await conversationRepository.listRecentMessagesForConversation({
-    conversationId: params.conversationId,
-    limit: 6,
-  });
-  const last = recent[recent.length - 1];
-  if (!last || last.role !== "assistant" || !isConsentPromptMessage(last.content)) {
-    return null;
-  }
-
-  if (negative) {
-    await saveConversationTurn({
-      conversationId: params.conversationId,
-      userContent: params.displayQuery || q,
-      assistantContent: GENERAL_KNOWLEDGE_DECLINED_ANSWER,
-    });
-    return { answer: GENERAL_KNOWLEDGE_DECLINED_ANSWER, sources: [] };
-  }
-
-  let originalQuestion = "";
-  for (let i = recent.length - 2; i >= 0; i -= 1) {
-    const m = recent[i];
-    if (m && m.role === "user") {
-      originalQuestion = m.content.trim();
-      break;
-    }
-  }
-  if (!originalQuestion) return null;
-
-  const systemInstruction = buildGeneralKnowledgeSystemInstruction();
-  const userMessage = buildGeneralKnowledgeUserMessage({
-    query: originalQuestion,
-    ...(params.filesMetaBlock ? { filesMeta: params.filesMetaBlock } : {}),
-  });
-
-  let answer = GENERAL_KNOWLEDGE_EMPTY_ANSWER;
-  try {
-    const gen = await ragCompletionService.generateRagCompletion({
-      systemInstruction,
-      userMessage,
-      temperature: env.RAG_TEMPERATURE,
-    });
-    const text = (gen.text || "").trim();
-    if (text) answer = text;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    log.warn(`general-knowledge followup failed: ${msg}`);
-  }
-
-  await saveConversationTurn({
-    conversationId: params.conversationId,
-    userContent: params.displayQuery || q,
-    assistantContent: answer,
-  });
-  return { answer, sources: [] };
-}
-
-// Renders a bullet list the model can read: filename, upload date, mime, size, source.
-function buildFilesMetaBlock(
+function buildMetadataSources(
   files: fileRepository.FileSearchMetaRow[]
-): string {
-  const rows = dedupeByFileId(files).slice(0, FILES_META_BLOCK_MAX);
-  if (rows.length === 0) return "";
-  return rows
-    .map((f) => {
-      const uploaded = formatDateTimeShort(f.createdAt);
-      const size = formatSizeBytes(f.size);
-      const source =
-        f.sourceType === "url" && f.sourceUrl
-          ? `imported from ${f.sourceUrl}`
-          : "uploaded";
-      return `- [File: ${f.originalName}] uploaded ${uploaded}, type ${f.mimeType}, size ${size}, source ${source}`;
-    })
-    .join("\n");
+): AskSource[] {
+  return dedupeByFileId(files).slice(0, 5).map((f) => ({
+    fileId: f.id,
+    fileName: f.originalName,
+    snippet: "metadata",
+  }));
+}
+
+function answerMetadataIntent(params: {
+  intent: MetadataIntent;
+  files: fileRepository.FileSearchMetaRow[];
+  workspaceScopedCount?: number;
+}): AskResult | null {
+  const files = dedupeByFileId(params.files);
+  if (params.intent === "count" && params.workspaceScopedCount !== undefined) {
+    const n = params.workspaceScopedCount;
+    return {
+      answer: n === 1 ? "You have 1 file in this workspace." : `You have ${n} files in this workspace.`,
+      sources: buildMetadataSources(files),
+    };
+  }
+  if (params.intent === "count" && files.length > 0) {
+    const n = files.length;
+    return {
+      answer: n === 1 ? "I found 1 file." : `I found ${n} files.`,
+      sources: buildMetadataSources(files),
+    };
+  }
+  if (files.length === 0) return null;
+
+  if (params.intent === "list") {
+    const names = files.slice(0, 10).map((f) => `• ${f.originalName}`);
+    return {
+      answer: `Here are files I found:\n${names.join("\n")}`,
+      sources: buildMetadataSources(files),
+    };
+  }
+  if (params.intent === "uploadedAt") {
+    const lines = files
+      .slice(0, 8)
+      .map((f) => `• ${f.originalName} — uploaded ${formatDateTimeShort(f.createdAt)}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "fileType") {
+    const lines = files
+      .slice(0, 8)
+      .map((f) => `• ${f.originalName} — ${f.mimeType}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "fileSize") {
+    const lines = files
+      .slice(0, 8)
+      .map((f) => `• ${f.originalName} — ${formatSizeBytes(f.size)}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "fileName") {
+    const lines = files.slice(0, 12).map((f) => `• ${f.originalName}`);
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  if (params.intent === "source") {
+    const lines = files.slice(0, 8).map((f) => {
+      if (f.sourceType === "url" && f.sourceUrl) {
+        return `• ${f.originalName} — imported from ${f.sourceUrl}`;
+      }
+      return `• ${f.originalName} — uploaded manually`;
+    });
+    return { answer: lines.join("\n"), sources: buildMetadataSources(files) };
+  }
+  return null;
 }
 
 export async function askUserFiles(params: {
@@ -390,32 +343,75 @@ export async function askUserFiles(params: {
     }
   }
 
-  // Resolve metadata for files in scope so the prompt can answer questions
-  // like upload date, size, type, source, count, list directly from facts.
-  let scopedFilesMeta: fileRepository.FileSearchMetaRow[] = [];
-  if (effectiveFileIds && effectiveFileIds.length > 0) {
-    scopedFilesMeta = await fileRepository.findFilesByIdsForUser(
-      params.userId,
-      effectiveFileIds.slice(0, FILES_META_BLOCK_MAX)
-    );
-  } else if (workspaceScopedFileIds && workspaceScopedFileIds.length > 0) {
-    scopedFilesMeta = await fileRepository.findFilesByIdsForUser(
-      params.userId,
-      workspaceScopedFileIds.slice(0, FILES_META_BLOCK_MAX)
-    );
-  }
-  const filesMetaBlock = buildFilesMetaBlock(scopedFilesMeta);
-
-  // If the user is replying yes/no to a prior "answer from general knowledge?"
-  // consent prompt, handle that here before spending an embedding + vector search.
-  if (conversationId) {
-    const followup = await handleGeneralKnowledgeConsentFollowup({
-      conversationId,
-      rawQuery,
-      displayQuery: params.displayQuery,
-      filesMetaBlock,
+  const metadataIntent = detectMetadataIntent(rawQuery);
+  if (metadataIntent) {
+    let metadataFiles: fileRepository.FileSearchMetaRow[] = [];
+    if (effectiveFileIds && effectiveFileIds.length > 0) {
+      metadataFiles = await fileRepository.findFilesByIdsForUser(
+        params.userId,
+        effectiveFileIds
+      );
+    } else if (
+      metadataIntent !== "count" &&
+      workspaceScopedFileIds &&
+      workspaceScopedFileIds.length > 0
+    ) {
+      metadataFiles = await fileRepository.findFilesByIdsForUser(
+        params.userId,
+        workspaceScopedFileIds.slice(0, 25)
+      );
+    }
+    const metadataResult = answerMetadataIntent({
+      intent: metadataIntent,
+      files: metadataFiles,
+      ...(workspaceScopedFileIds !== undefined
+        ? { workspaceScopedCount: workspaceScopedFileIds.length }
+        : {}),
     });
-    if (followup) return followup;
+    if (metadataResult) {
+      if (conversationId) {
+        await conversationRepository.createMessage({
+          conversationId,
+          role: "user",
+          content: params.displayQuery || rawQuery,
+        });
+        await conversationRepository.createMessage({
+          conversationId,
+          role: "assistant",
+          content: metadataResult.answer,
+          ...(metadataResult.sources.length > 0
+            ? { sources: metadataResult.sources }
+            : {}),
+        });
+        await conversationRepository.touchConversationUpdatedAt(conversationId);
+      }
+      const totalMs = performance.now() - t0;
+      log.info(
+        askApiPanel({
+          userId: params.userId,
+          query: rawQuery,
+          queryChars: rawQuery.length,
+          scopedFileIds,
+          embedMs: 0,
+          vectorMs: 0,
+          llmMs: 0,
+          totalMs,
+          chunksFetched: 0,
+          chunksAfterScoreFilter: 0,
+          distinctContentsPacked: 0,
+          contentIdsBeforeDedup: [],
+          contentIdsAfterDedup: [],
+          scoresBeforeDedup: "(none)",
+          scoresAfterDedup: "(none)",
+          selectedChunksDetail: "(metadata-only)",
+          selectedChunkCount: 0,
+          contextChars: 0,
+          model: "metadata",
+          modelVersion: undefined,
+        })
+      );
+      return metadataResult;
+    }
   }
 
   const tEmbed = performance.now();
@@ -488,11 +484,7 @@ export async function askUserFiles(params: {
   const scoresBeforeDedup = formatScoresFromPacks(packs);
   const scoresAfterDedup = formatScoresFromPacks(topPacks);
 
-  // When there are no retrieval hits AND no scoped metadata, there is
-  // nothing the LLM can possibly answer from — short-circuit cleanly.
-  // When scoped metadata exists, keep going so questions like "upload date"
-  // / "file size" / "how many files" can be answered from metadata alone.
-  if (topPacks.length === 0 && !filesMetaBlock.trim()) {
+  if (topPacks.length === 0) {
     const totalMs = performance.now() - t0;
     log.info(
       askApiPanel({
@@ -518,17 +510,7 @@ export async function askUserFiles(params: {
         modelVersion: undefined,
       })
     );
-    const notFoundAnswer = conversationId
-      ? GENERAL_KNOWLEDGE_CONSENT_PROMPT
-      : "Not found in files";
-    if (conversationId) {
-      await saveConversationTurn({
-        conversationId,
-        userContent: params.displayQuery || rawQuery,
-        assistantContent: notFoundAnswer,
-      });
-    }
-    return { answer: notFoundAnswer, sources: [] };
+    return { answer: "Not found in files", sources: [] };
   }
 
   const files = await fileRepository.findFilesByContentIdsForUser(
@@ -584,17 +566,7 @@ export async function askUserFiles(params: {
         modelVersion: undefined,
       })
     );
-    const notFoundAnswer = conversationId
-      ? GENERAL_KNOWLEDGE_CONSENT_PROMPT
-      : "Not found in files";
-    if (conversationId) {
-      await saveConversationTurn({
-        conversationId,
-        userContent: params.displayQuery || rawQuery,
-        assistantContent: notFoundAnswer,
-      });
-    }
-    return { answer: notFoundAnswer, sources: [] };
+    return { answer: "Not found in files", sources: [] };
   }
 
   context = trimContextToMax(context, env.RAG_MAX_CONTEXT_CHARS);
@@ -614,7 +586,6 @@ export async function askUserFiles(params: {
     context,
     query: rawQuery,
     ...(historyBlock ? { history: historyBlock } : {}),
-    ...(filesMetaBlock ? { filesMeta: filesMetaBlock } : {}),
   });
 
   const tLlm = performance.now();
@@ -676,7 +647,7 @@ export async function askUserFiles(params: {
     answer = normalizeFileBracketMentions(trimmed);
   }
 
-  let sources: AskSource[] = [];
+  const sources: AskSource[] = [];
   for (const p of topPacks) {
     const group = byContentFiles.get(p.contentId) ?? [];
     const file = group[0];
@@ -690,17 +661,15 @@ export async function askUserFiles(params: {
     }
   }
 
-  // If the model correctly admitted the fact isn't present, don't attach
-  // chunk sources — that would misleadingly suggest a partial answer and
-  // previously triggered a "I found relevant content in …" fluff rewrite.
-  // When we're in a persisted conversation, offer the general-knowledge
-  // fallback so the user can opt in on the next turn.
-  if (isNotFoundStyleAnswer(answer)) {
-    answer = conversationId
-      ? GENERAL_KNOWLEDGE_CONSENT_PROMPT
-      : "Not found in files";
-    sources = [];
-  } else if (sources.length > 0) {
+  if (sources.length > 0 && isNotFoundStyleAnswer(answer)) {
+    const fileNames = [...new Set(sources.map((s) => s.fileName))].slice(0, 3);
+    answer =
+      fileNames.length === 1
+        ? `I found relevant content in ${fileNames[0]}.`
+        : `I found relevant content in ${fileNames.join(", ")}.`;
+  }
+
+  if (sources.length > 0) {
     answer = enforceFileBracketMentionsForSourceNames(
       answer,
       sources.map((s) => s.fileName)
