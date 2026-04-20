@@ -438,6 +438,35 @@ export async function deleteUserFile(params: {
   }
 }
 
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  const size = Math.max(1, Math.min(limit, items.length));
+  let nextIndex = 0;
+  let firstError: unknown;
+
+  const worker = async () => {
+    while (true) {
+      if (firstError) return;
+      const i = nextIndex;
+      nextIndex += 1;
+      if (i >= items.length) return;
+      try {
+        await fn(items[i]!);
+      } catch (e) {
+        firstError = e;
+        return;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: size }, () => worker()));
+  if (firstError) throw firstError;
+}
+
 // deletes every file in the workspace (storage, db, vectors when content unused), chat threads, workspace-tagged activities, then the workspace row.
 export async function deleteWorkspaceAndRelated(params: {
   accessToken: string;
@@ -448,22 +477,49 @@ export async function deleteWorkspaceAndRelated(params: {
     params.userId,
     params.workspaceId
   );
-  const fileIds = await fileRepository.findFileIdsByWorkspaceForUser(
+  const files = await fileRepository.findFilesForWorkspaceDeleteForUser(
     params.userId,
     params.workspaceId
   );
-  for (const fileId of fileIds) {
-    await deleteUserFile({
-      accessToken: params.accessToken,
-      userId: params.userId,
-      fileId,
+  const fileIds = files.map((f) => f.id);
+  const uniqueContentIds = [...new Set(files.map((f) => f.contentId))];
+
+  // delete storage paths concurrently; fail before db mutation if storage delete fails
+  try {
+    await mapWithConcurrency(files, 6, async (f) => {
+      await storageService.deleteFromFilesBucket(params.accessToken, f.storagePath);
     });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new HttpError(502, `Could not delete workspace files from storage: ${msg}`);
   }
+
+  if (fileIds.length > 0) {
+    await fileRepository.deleteFilesByIdsForUser(params.userId, fileIds);
+  }
+
+  const contentUseCounts = await fileRepository.countFilesForContentIds(uniqueContentIds);
+  const orphanContentIds = uniqueContentIds.filter(
+    (contentId) => (contentUseCounts.get(contentId) ?? 0) === 0
+  );
+
+  if (orphanContentIds.length > 0) {
+    await mapWithConcurrency(orphanContentIds, 4, async (contentId) => {
+      await getChunkVectorStore().deleteChunksForContent(contentId);
+    });
+    // content delete cascades file_chunks via FK
+    await fileRepository.deleteContentsByIds(orphanContentIds);
+  }
+
   await conversationRepository.deleteConversationsForWorkspace(
     params.userId,
     params.workspaceId
   );
+
   try {
+    if (fileIds.length > 0) {
+      await activityRepository.deleteUploadActivitiesForFiles(params.userId, fileIds);
+    }
     await activityRepository.deleteActivitiesForWorkspace(
       params.userId,
       params.workspaceId
@@ -471,6 +527,18 @@ export async function deleteWorkspaceAndRelated(params: {
   } catch (e) {
     log.warn(`activity cleanup for workspace delete failed: ${String(e)}`);
   }
+
+  try {
+    if (fileIds.length > 0) {
+      await conversationRepository.removeFileIdsFromAssistantSourcesForUser(
+        params.userId,
+        fileIds
+      );
+    }
+  } catch (e) {
+    log.warn(`chat sources cleanup for workspace delete failed: ${String(e)}`);
+  }
+
   const ok = await workspaceRepository.deleteWorkspace(
     params.workspaceId,
     params.userId

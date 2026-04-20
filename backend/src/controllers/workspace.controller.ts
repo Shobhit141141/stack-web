@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import * as fileService from "../services/file.service.js";
+import * as deleteQueueService from "../services/delete-queue.service.js";
 import * as workspaceService from "../services/workspace.service.js";
 import { isUuid } from "../utils/uuid.js";
 
@@ -91,12 +91,13 @@ export async function deleteWorkspace(
     return;
   }
   try {
-    await fileService.deleteWorkspaceAndRelated({
+    await workspaceService.assertWorkspaceOwned(userId, id);
+    const job = deleteQueueService.enqueueWorkspaceDelete({
       accessToken: token,
       userId,
       workspaceId: id,
     });
-    res.status(204).send();
+    res.status(202).json(job);
   } catch (e) {
     next(e);
   }

@@ -181,6 +181,12 @@ export type FileSearchMetaRow = {
   createdAt: Date;
 };
 
+export type WorkspaceFileDeleteRow = {
+  id: string;
+  contentId: string;
+  storagePath: string;
+};
+
 export async function findFilesByIdsForUser(
   userId: string,
   ids: string[]
@@ -252,6 +258,17 @@ export async function findFileIdsByWorkspaceForUser(
   return rows.map((r) => r.id);
 }
 
+// rows needed for fast workspace delete pipeline.
+export async function findFilesForWorkspaceDeleteForUser(
+  userId: string,
+  workspaceId: string
+): Promise<WorkspaceFileDeleteRow[]> {
+  return prisma.file.findMany({
+    where: { userId, workspaceId },
+    select: { id: true, contentId: true, storagePath: true },
+  });
+}
+
 // moves file into a workspace or clears workspace when workspaceId is null.
 export async function updateFileWorkspaceForUser(
   fileId: string,
@@ -287,6 +304,17 @@ export async function deleteFileByIdForUser(
   return r.count > 0;
 }
 
+export async function deleteFilesByIdsForUser(
+  userId: string,
+  fileIds: string[]
+): Promise<number> {
+  if (fileIds.length === 0) return 0;
+  const r = await prisma.file.deleteMany({
+    where: { userId, id: { in: fileIds } },
+  });
+  return r.count;
+}
+
 export async function countFilesByContentId(
   contentId: string
 ): Promise<number> {
@@ -295,9 +323,29 @@ export async function countFilesByContentId(
   });
 }
 
+export async function countFilesForContentIds(
+  contentIds: string[]
+): Promise<Map<string, number>> {
+  if (contentIds.length === 0) return new Map();
+  const rows = await prisma.file.groupBy({
+    by: ["contentId"],
+    where: { contentId: { in: contentIds } },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((r) => [r.contentId, r._count._all]));
+}
+
 export async function deleteContentById(contentId: string): Promise<void> {
   await prisma.content.delete({
     where: { id: contentId },
     select: { id: true },
   });
+}
+
+export async function deleteContentsByIds(contentIds: string[]): Promise<number> {
+  if (contentIds.length === 0) return 0;
+  const r = await prisma.content.deleteMany({
+    where: { id: { in: contentIds } },
+  });
+  return r.count;
 }

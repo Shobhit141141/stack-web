@@ -5,6 +5,7 @@ import { enqueueUrlIngest } from "../queue/url-ingest.queue.js";
 import * as fileRepository from "../repositories/file.repository.js";
 import { scheduleExtractionAfterUpload } from "../services/extraction.service.js";
 import * as activityService from "../services/activity.service.js";
+import * as deleteQueueService from "../services/delete-queue.service.js";
 import * as fileService from "../services/file.service.js";
 import * as urlIngestJobStatusService from "../services/url-ingest-job-status.service.js";
 import { log } from "../utils/logger/index.js";
@@ -187,12 +188,17 @@ export async function deleteFile(
     return;
   }
   try {
-    await fileService.deleteUserFile({
+    const file = await fileRepository.findFileByIdForUser(id, userId);
+    if (!file) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    const job = deleteQueueService.enqueueFileDelete({
       accessToken: token,
       userId,
       fileId: id,
     });
-    res.status(204).send();
+    res.status(202).json(job);
   } catch (e) {
     next(e);
   }

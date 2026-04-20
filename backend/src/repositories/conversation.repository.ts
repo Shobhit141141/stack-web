@@ -138,6 +138,16 @@ export async function removeFileIdFromAssistantSourcesForUser(
   userId: string,
   fileId: string
 ): Promise<void> {
+  await removeFileIdsFromAssistantSourcesForUser(userId, [fileId]);
+}
+
+// single scan cleanup for many deleted files.
+export async function removeFileIdsFromAssistantSourcesForUser(
+  userId: string,
+  fileIds: string[]
+): Promise<void> {
+  const targetIds = new Set(fileIds.filter(Boolean));
+  if (targetIds.size === 0) return;
   const rows = await prisma.chatMessage.findMany({
     where: {
       role: "assistant",
@@ -154,7 +164,7 @@ export async function removeFileIdFromAssistantSourcesForUser(
     const next = src.filter((item) => {
       if (item && typeof item === "object" && "fileId" in item) {
         const fid = (item as { fileId?: unknown }).fileId;
-        if (fid === fileId) {
+        if (typeof fid === "string" && targetIds.has(fid)) {
           changed = true;
           return false;
         }

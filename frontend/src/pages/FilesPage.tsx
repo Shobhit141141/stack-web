@@ -135,7 +135,7 @@ export function FilesPage() {
   async function handleDeleteConfirm(file: FileItem) {
     await deleteFile(file.id)
     emitFilesUpdated()
-    toast.success('File deleted')
+    toast.success('File deletion started')
     await loadFiles()
   }
 
@@ -143,7 +143,9 @@ export function FilesPage() {
     await Promise.all(items.map((f) => deleteFile(f.id)))
     emitFilesUpdated()
     toast.success(
-      items.length === 1 ? 'File deleted' : `Deleted ${items.length} files`,
+      items.length === 1
+        ? 'File deletion started'
+        : `Deletion started for ${items.length} files`,
     )
     await loadFiles()
   }
@@ -326,8 +328,8 @@ export function FilesPage() {
         onConfirm={async (ws) => {
           await deleteWorkspace(ws.id)
           emitFilesUpdated()
-          toast.success(`Workspace “${ws.name}” deleted`)
-          await loadWorkspaces()
+          toast.success(`Workspace “${ws.name}” deletion started`)
+          navigate(routeMap.home)
         }}
       />
 

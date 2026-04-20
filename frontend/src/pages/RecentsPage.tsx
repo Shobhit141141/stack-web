@@ -41,7 +41,7 @@ export function RecentsPage() {
   async function handleDeleteConfirm(file: FileItem) {
     await deleteFile(file.id)
     emitFilesUpdated()
-    toast.success('File deleted')
+    toast.success('File deletion started')
     await refetch()
   }
 

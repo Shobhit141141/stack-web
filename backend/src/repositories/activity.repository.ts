@@ -50,6 +50,21 @@ export async function deleteUploadActivitiesForFile(
   });
 }
 
+export async function deleteUploadActivitiesForFiles(
+  userId: string,
+  fileIds: string[]
+): Promise<void> {
+  if (fileIds.length === 0) return;
+  await prisma.$executeRaw`
+    DELETE FROM "activities"
+    WHERE "user_id" = ${userId}::uuid
+      AND "type" = 'upload'
+      AND ("metadata"->>'fileId') IN (${Prisma.join(
+        fileIds.map((id) => Prisma.sql`${id}`)
+      )})
+  `;
+}
+
 // timeline rows tagged with this workspace (upload/chat/search metadata.workspaceId).
 export async function deleteActivitiesForWorkspace(
   userId: string,
