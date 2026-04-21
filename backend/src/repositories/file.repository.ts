@@ -17,7 +17,7 @@ const listSelect = {
       summaryStatus: true,
     },
   },
-} as const;
+} satisfies Prisma.FileSelect;
 
 export type FileListRow = Prisma.FileGetPayload<{ select: typeof listSelect }>;
 
@@ -163,7 +163,7 @@ export async function findFileByIdForUser(id: string, userId: string) {
           summaryStatus: true,
         },
       },
-    },
+    } satisfies Prisma.FileSelect,
   });
 }
 
