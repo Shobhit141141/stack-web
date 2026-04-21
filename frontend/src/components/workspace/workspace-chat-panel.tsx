@@ -3,16 +3,24 @@ import { Box, Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
 import { HiOutlineDocumentDuplicate } from 'react-icons/hi2'
 import { ChatAnswerContent, ChatSourceFileChips } from './chat-answer-content'
-import { postAsk, type AskSource } from '../../services/ask-service'
+import { ChatQuizCard } from './chat-quiz-card'
+import {
+  postAsk,
+  postQuizSubmit,
+  type AskSource,
+  type ChatPayload,
+} from '../../services/ask-service'
 import { fetchCurrentWorkspaceConversation } from '../../services/conversation-service'
 import { fetchFileList } from '../../services/file-service'
 import { openKnownFile } from '../../hooks/use-open-file'
 import type { FileItem } from '../../types/file'
 
 type ChatTurn = {
+  id?: string
   role: 'user' | 'assistant'
   text: string
   sources?: AskSource[]
+  payload?: ChatPayload
 }
 
 type Props = {
@@ -194,9 +202,11 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         setConversationId(snapshot.conversationId)
         setTurns(
           snapshot.messages.map((m) => ({
+            id: m.id,
             role: m.role,
             text: m.content,
             ...(Array.isArray(m.sources) ? { sources: m.sources } : {}),
+            ...(m.payload ? { payload: m.payload } : {}),
           })),
         )
       } catch (err) {
@@ -326,14 +336,22 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     const fileIds = mentionInfo.fileIds.length ? mentionInfo.fileIds : undefined
 
     try {
-      const { answer, sources } = await postAsk({
+      const res = await postAsk({
         query: askQuery,
         displayQuery: q,
         workspaceId,
         conversationId,
         ...(fileIds?.length ? { fileIds } : {}),
       })
-      setTurns((prev) => [...prev, { role: 'assistant', text: answer, sources }])
+      setTurns((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: res.answer,
+          sources: res.sources,
+          ...(res.payload ? { payload: res.payload } : {}),
+        },
+      ])
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Request failed'
       toast.error(msg)
@@ -381,6 +399,43 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       toast.success('Copied message')
     } catch {
       toast.error('Could not copy message')
+    }
+  }
+
+  async function handleQuizSubmit(
+    turn: ChatTurn,
+    answers: Array<{ questionId: string; selectedOptionId: string }>,
+  ) {
+    if (!conversationId) {
+      toast.error('Conversation is not ready yet. Please try again in a moment.')
+      return
+    }
+    if (!turn.id) {
+      toast.error('Quiz message reference is missing.')
+      return
+    }
+    try {
+      const result = await postQuizSubmit({
+        conversationId,
+        quizMessageId: turn.id,
+        answers,
+      })
+      setTurns((prev) => [
+        ...prev,
+        {
+          role: 'user',
+          text: result.userMessage.content,
+          payload: result.userMessage.payload,
+        },
+        {
+          role: 'assistant',
+          text: result.assistantMessage.answer,
+          payload: result.assistantMessage.payload,
+        },
+      ])
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Quiz submit failed'
+      toast.error(msg)
     }
   }
 
@@ -433,6 +488,13 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               {t.role === 'assistant' ? (
                 <>
                   <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
+                  {t.payload && t.payload.kind === 'quiz' ? (
+                    <ChatQuizCard
+                      quiz={t.payload}
+                      disabled={sending || hydrating}
+                      onSubmit={(answers) => handleQuizSubmit(t, answers)}
+                    />
+                  ) : null}
                   <ChatSourceFileChips sources={t.sources ?? []} />
                 </>
               ) : (

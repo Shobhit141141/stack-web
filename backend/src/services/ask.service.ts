@@ -20,6 +20,7 @@ export type AskSource = {
 export type AskResult = {
   answer: string;
   sources: AskSource[];
+  payload?: unknown;
 };
 
 type ChunkHit = searchRepository.ChunkSearchRow & { score: number };
@@ -27,6 +28,178 @@ type ChunkHit = searchRepository.ChunkSearchRow & { score: number };
 const SNIPPET_MAX_CHARS = 400;
 const HISTORY_TURNS_MAX = 12;
 const HISTORY_MESSAGE_MAX_CHARS = 400;
+const QUIZ_MAX_QUESTIONS = 5;
+const QUIZ_OPTIONS_PER_QUESTION = 4;
+
+type QuizQuestionOption = {
+  optionId: string;
+  text: string;
+};
+
+type QuizQuestionPublic = {
+  questionId: string;
+  prompt: string;
+  options: QuizQuestionOption[];
+};
+
+type QuizAnswerKeyItem = {
+  questionId: string;
+  correctOptionId: string;
+  explanation: string;
+};
+
+type QuizPayload = {
+  kind: "quiz";
+  quizId: string;
+  title: string;
+  prompt: string;
+  questions: QuizQuestionPublic[];
+  answerKey: QuizAnswerKeyItem[];
+};
+
+type QuizSubmissionPayload = {
+  kind: "quiz_submission";
+  quizId: string;
+  quizMessageId: string;
+  answers: Array<{
+    questionId: string;
+    selectedOptionId: string;
+  }>;
+};
+
+type QuizResultPayload = {
+  kind: "quiz_result";
+  quizId: string;
+  score: number;
+  total: number;
+  perQuestion: Array<{
+    questionId: string;
+    selectedOptionId: string | null;
+    correctOptionId: string;
+    isCorrect: boolean;
+    explanation: string;
+  }>;
+  insights: string;
+};
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function extractJsonObject(text: string): string {
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) return text.slice(start, end + 1);
+  return text.trim();
+}
+
+function safeUuidLikeFromNow(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function parseQuizPrompt(rawQuery: string): string | null {
+  const q = rawQuery.trim();
+  if (!q.toLowerCase().startsWith("/quiz")) return null;
+  const rest = q.slice(5).trim();
+  return rest || "Create a general quiz from the provided context.";
+}
+
+async function generateQuizFromContext(params: {
+  context: string;
+  prompt: string;
+}): Promise<QuizPayload> {
+  const schemaInstruction =
+    'Return only valid JSON with this shape: {"title":string,"questions":[{"questionId":string,"prompt":string,"options":[{"optionId":string,"text":string}],"correctOptionId":string,"explanation":string}]}';
+  const userMessage = [
+    "Create a multiple-choice quiz from the context.",
+    "Rules:",
+    `- max ${QUIZ_MAX_QUESTIONS} questions`,
+    `- exactly ${QUIZ_OPTIONS_PER_QUESTION} options per question`,
+    "- question and options should be concise",
+    "- include correctOptionId and short explanation for grading/feedback",
+    "",
+    `User focus: ${params.prompt}`,
+    "",
+    "Context:",
+    params.context,
+    "",
+    schemaInstruction,
+  ].join("\n");
+  const gen = await ragCompletionService.generateRagCompletion({
+    systemInstruction:
+      "You are an assessment generator. Output strict JSON only with no markdown.",
+    userMessage,
+    temperature: 0.2,
+  });
+  const parsed = JSON.parse(extractJsonObject(gen.text)) as unknown;
+  if (!isRecord(parsed) || typeof parsed.title !== "string" || !Array.isArray(parsed.questions)) {
+    throw new Error("Invalid quiz JSON shape");
+  }
+  const questions = parsed.questions.slice(0, QUIZ_MAX_QUESTIONS).map((q, i) => {
+    if (!isRecord(q)) throw new Error("Invalid quiz question");
+    const prompt = typeof q.prompt === "string" ? q.prompt.trim() : "";
+    const questionId =
+      typeof q.questionId === "string" && q.questionId.trim()
+        ? q.questionId.trim()
+        : `q${i + 1}`;
+    const optionsRaw = Array.isArray(q.options) ? q.options : [];
+    const options = optionsRaw.slice(0, QUIZ_OPTIONS_PER_QUESTION).map((o, j) => {
+      if (!isRecord(o) || typeof o.text !== "string") {
+        throw new Error("Invalid quiz option");
+      }
+      const optionId =
+        typeof o.optionId === "string" && o.optionId.trim()
+          ? o.optionId.trim()
+          : `o${j + 1}`;
+      return {
+        optionId,
+        text: o.text.trim(),
+      };
+    });
+    if (!prompt || options.length !== QUIZ_OPTIONS_PER_QUESTION) {
+      throw new Error("Invalid quiz question fields");
+    }
+    const correctOptionId =
+      typeof q.correctOptionId === "string" && q.correctOptionId.trim()
+        ? q.correctOptionId.trim()
+        : options[0]!.optionId;
+    if (!options.some((o) => o.optionId === correctOptionId)) {
+      throw new Error("correctOptionId not found in options");
+    }
+    const explanation =
+      typeof q.explanation === "string" && q.explanation.trim()
+        ? q.explanation.trim()
+        : "Review the related section in the source material.";
+    return {
+      questionId,
+      prompt,
+      options,
+      correctOptionId,
+      explanation,
+    };
+  });
+  if (questions.length === 0) {
+    throw new Error("No quiz questions generated");
+  }
+  return {
+    kind: "quiz",
+    quizId: safeUuidLikeFromNow(),
+    title: parsed.title.trim() || "Knowledge Check",
+    prompt: params.prompt,
+    questions: questions.map((q) => ({
+      questionId: q.questionId,
+      prompt: q.prompt,
+      options: q.options,
+    })),
+    answerKey: questions.map((q) => ({
+      questionId: q.questionId,
+      correctOptionId: q.correctOptionId,
+      explanation: q.explanation,
+    })),
+  };
+}
 
 // cosine distance: 0 = identical, 1 = orthogonal, 2 = opposite
 // score = 1 - distance = cosine similarity (0-1)
@@ -275,6 +448,7 @@ export async function askUserFiles(params: {
 }): Promise<AskResult> {
   const t0 = performance.now();
   const rawQuery = params.query.trim();
+  const quizPrompt = parseQuizPrompt(rawQuery);
 
   let scopedFileIds = 0;
   let restrictContentIds: string[] | undefined;
@@ -343,7 +517,7 @@ export async function askUserFiles(params: {
     }
   }
 
-  const metadataIntent = detectMetadataIntent(rawQuery);
+  const metadataIntent = quizPrompt ? null : detectMetadataIntent(rawQuery);
   if (metadataIntent) {
     let metadataFiles: fileRepository.FileSearchMetaRow[] = [];
     if (effectiveFileIds && effectiveFileIds.length > 0) {
@@ -581,6 +755,29 @@ export async function askUserFiles(params: {
     historyBlock = buildHistoryBlock(historyRows);
   }
 
+  if (quizPrompt) {
+    const quizPayload = await generateQuizFromContext({
+      context,
+      prompt: quizPrompt,
+    });
+    const answer = `Quiz ready: ${quizPayload.title} (${quizPayload.questions.length} questions). Select options and submit when ready.`;
+    if (conversationId) {
+      await conversationRepository.createMessage({
+        conversationId,
+        role: "user",
+        content: params.displayQuery || rawQuery,
+      });
+      await conversationRepository.createMessage({
+        conversationId,
+        role: "assistant",
+        content: answer,
+        payload: quizPayload,
+      });
+      await conversationRepository.touchConversationUpdatedAt(conversationId);
+    }
+    return { answer, sources: [], payload: quizPayload };
+  }
+
   const systemInstruction = buildAskSystemInstruction();
   const userMessage = buildAskUserMessage({
     context,
@@ -733,6 +930,129 @@ export async function askUserFiles(params: {
   return { answer, sources };
 }
 
+export async function submitQuizAnswers(params: {
+  userId: string;
+  conversationId: string;
+  quizMessageId: string;
+  answers: Array<{
+    questionId: string;
+    selectedOptionId: string;
+  }>;
+}): Promise<{
+  userMessage: {
+    content: string;
+    payload: QuizSubmissionPayload;
+  };
+  assistantMessage: {
+    answer: string;
+    payload: QuizResultPayload;
+  };
+}> {
+  const convo = await conversationRepository.findConversationByIdForUser(
+    params.conversationId,
+    params.userId
+  );
+  if (!convo) throw new InvalidConversationError();
+
+  const quizMsg = await conversationRepository.findMessageByIdForUser({
+    messageId: params.quizMessageId,
+    userId: params.userId,
+  });
+  if (!quizMsg || quizMsg.conversationId !== params.conversationId) {
+    throw new InvalidQuizMessageError();
+  }
+  if (!isRecord(quizMsg.payload) || quizMsg.payload.kind !== "quiz") {
+    throw new InvalidQuizMessageError();
+  }
+  const payload = quizMsg.payload as unknown as QuizPayload;
+  if (!Array.isArray(payload.questions) || !Array.isArray(payload.answerKey)) {
+    throw new InvalidQuizMessageError();
+  }
+
+  const answersByQuestion = new Map(
+    params.answers.map((a) => [a.questionId, a.selectedOptionId])
+  );
+  const perQuestion = payload.answerKey.map((k) => {
+    const selectedOptionId = answersByQuestion.get(k.questionId) ?? null;
+    const isCorrect = selectedOptionId === k.correctOptionId;
+    return {
+      questionId: k.questionId,
+      selectedOptionId,
+      correctOptionId: k.correctOptionId,
+      isCorrect,
+      explanation: k.explanation,
+    };
+  });
+  const score = perQuestion.filter((q) => q.isCorrect).length;
+  const total = perQuestion.length;
+
+  const insightsPrompt = [
+    "A user completed a quiz. Provide concise learning insights in plain text.",
+    "Include strengths, weak areas, and 2-3 next study tips.",
+    `Score: ${score}/${total}`,
+    `Question outcomes: ${JSON.stringify(perQuestion)}`,
+  ].join("\n");
+  let insights =
+    "Good attempt. Review incorrect questions and revisit related file sections before retrying.";
+  try {
+    const gen = await ragCompletionService.generateRagCompletion({
+      systemInstruction:
+        "You are a helpful tutor giving concise actionable feedback.",
+      userMessage: insightsPrompt,
+      temperature: 0.3,
+    });
+    const txt = gen.text.trim();
+    if (txt) insights = txt;
+  } catch {
+    // keep default insights
+  }
+
+  const submissionPayload: QuizSubmissionPayload = {
+    kind: "quiz_submission",
+    quizId: payload.quizId,
+    quizMessageId: params.quizMessageId,
+    answers: perQuestion.map((q) => ({
+      questionId: q.questionId,
+      selectedOptionId: q.selectedOptionId ?? "",
+    })),
+  };
+  const resultPayload: QuizResultPayload = {
+    kind: "quiz_result",
+    quizId: payload.quizId,
+    score,
+    total,
+    perQuestion,
+    insights,
+  };
+  const userContent = `Quiz submission: ${score}/${total}`;
+  const assistantContent = `You scored ${score}/${total}.\n\n${insights}`;
+
+  await conversationRepository.createMessage({
+    conversationId: params.conversationId,
+    role: "user",
+    content: userContent,
+    payload: submissionPayload,
+  });
+  await conversationRepository.createMessage({
+    conversationId: params.conversationId,
+    role: "assistant",
+    content: assistantContent,
+    payload: resultPayload,
+  });
+  await conversationRepository.touchConversationUpdatedAt(params.conversationId);
+
+  return {
+    userMessage: {
+      content: userContent,
+      payload: submissionPayload,
+    },
+    assistantMessage: {
+      answer: assistantContent,
+      payload: resultPayload,
+    },
+  };
+}
+
 export class InvalidFileIdsError extends Error {
   constructor() {
     super("INVALID_FILE_IDS");
@@ -751,5 +1071,12 @@ export class InvalidConversationError extends Error {
   constructor() {
     super("INVALID_CONVERSATION");
     this.name = "InvalidConversationError";
+  }
+}
+
+export class InvalidQuizMessageError extends Error {
+  constructor() {
+    super("INVALID_QUIZ_MESSAGE");
+    this.name = "InvalidQuizMessageError";
   }
 }

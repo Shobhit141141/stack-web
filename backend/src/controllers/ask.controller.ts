@@ -130,3 +130,78 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
     next(e);
   }
 }
+
+export async function postQuizSubmit(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const body = req.body as {
+      conversationId?: unknown;
+      quizMessageId?: unknown;
+      answers?: unknown;
+    };
+    if (
+      typeof body.conversationId !== "string" ||
+      !isUuid(body.conversationId)
+    ) {
+      res
+        .status(400)
+        .json({ error: "conversationId must be a uuid string" });
+      return;
+    }
+    if (typeof body.quizMessageId !== "string" || !isUuid(body.quizMessageId)) {
+      res.status(400).json({ error: "quizMessageId must be a uuid string" });
+      return;
+    }
+    if (!Array.isArray(body.answers)) {
+      res.status(400).json({ error: "answers must be an array" });
+      return;
+    }
+    const answers = body.answers
+      .filter(
+        (
+          item
+        ): item is { questionId: string; selectedOptionId: string } =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as { questionId?: unknown }).questionId === "string" &&
+          typeof (item as { selectedOptionId?: unknown }).selectedOptionId ===
+            "string"
+      )
+      .map((a) => ({
+        questionId: a.questionId,
+        selectedOptionId: a.selectedOptionId,
+      }));
+    if (answers.length === 0) {
+      res
+        .status(400)
+        .json({ error: "answers must include at least one selection" });
+      return;
+    }
+
+    const result = await askService.submitQuizAnswers({
+      userId,
+      conversationId: body.conversationId,
+      quizMessageId: body.quizMessageId,
+      answers,
+    });
+    res.json(result);
+  } catch (e) {
+    if (e instanceof askService.InvalidConversationError) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+    if (e instanceof askService.InvalidQuizMessageError) {
+      res.status(404).json({ error: "Quiz message not found" });
+      return;
+    }
+    next(e);
+  }
+}

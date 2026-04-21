@@ -10,6 +10,7 @@ export type ConversationMessage = {
   role: "user" | "assistant";
   content: string;
   sources?: unknown;
+  payload?: unknown;
   createdAt: string;
 };
 
@@ -27,6 +28,7 @@ function toMessage(
     role: row.role === "assistant" ? "assistant" : "user",
     content: row.content,
     ...(row.sources !== null ? { sources: row.sources } : {}),
+    ...(row.payload !== null ? { payload: row.payload } : {}),
     createdAt: row.createdAt.toISOString(),
   };
 }

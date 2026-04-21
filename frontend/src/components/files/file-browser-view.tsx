@@ -332,9 +332,9 @@ function FileCardGrid({
           ⋯
         </button>
         <img
-          src={isImageFileType(file.type) ? (previewUrl ?? fileIcon(file.type)) : fileIcon(file.type)}
+          src={previewUrl ?? (isImageFileType(file.type) ? fileIcon(file.type) : fileIcon(file.type))}
           alt=""
-          className="aspect-square w-full rounded-md object-cover"
+          className={`aspect-square w-full rounded-md ${previewUrl ? 'object-cover' : ''}`}
           loading="lazy"
           decoding="async"
           onError={(e) => {
@@ -446,9 +446,9 @@ function FileRowList({
       >
         <div className="flex min-w-0 items-center gap-3">
           <img
-            src={isImageFileType(file.type) ? (previewUrl ?? fileIcon(file.type)) : fileIcon(file.type)}
+            src={previewUrl ?? (isImageFileType(file.type) ? fileIcon(file.type) : fileIcon(file.type))}
             alt=""
-            className="h-8 w-8 shrink-0 rounded object-cover"
+            className={`h-8 w-8 shrink-0 rounded ${previewUrl ? 'object-cover' : ''}`}
             loading="lazy"
             decoding="async"
             onError={(e) => {

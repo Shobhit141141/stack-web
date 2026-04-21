@@ -16,6 +16,7 @@ const messageSelect = {
   role: true,
   content: true,
   sources: true,
+  payload: true,
   createdAt: true,
 } as const;
 
@@ -34,6 +35,7 @@ export type ChatMessageRow = {
   role: string;
   content: string;
   sources: unknown;
+  payload: unknown;
   createdAt: Date;
 };
 
@@ -121,6 +123,7 @@ export async function createMessage(params: {
   role: "user" | "assistant";
   content: string;
   sources?: Prisma.InputJsonValue;
+  payload?: Prisma.InputJsonValue;
 }): Promise<ChatMessageRow> {
   return prisma.chatMessage.create({
     data: {
@@ -128,6 +131,22 @@ export async function createMessage(params: {
       role: params.role,
       content: params.content,
       ...(params.sources !== undefined ? { sources: params.sources } : {}),
+      ...(params.payload !== undefined ? { payload: params.payload } : {}),
+    },
+    select: messageSelect,
+  });
+}
+
+export async function findMessageByIdForUser(params: {
+  messageId: string;
+  userId: string;
+}): Promise<ChatMessageRow | null> {
+  return prisma.chatMessage.findFirst({
+    where: {
+      id: params.messageId,
+      conversation: {
+        userId: params.userId,
+      },
     },
     select: messageSelect,
   });

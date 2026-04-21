@@ -16,14 +16,14 @@ export function useImageThumbnailUrls(items: ThumbnailInput[]): Map<string, stri
   const imageIds = useMemo(
     () =>
       items
-        .filter((item) => isImageFileType(item.type))
+        .filter((item) => isImageFileType(item.type) || Boolean(item.thumbnailUrl))
         .map((item) => item.fileId),
     [items],
   )
 
   useEffect(() => {
     for (const item of items) {
-      if (!isImageFileType(item.type) || !item.thumbnailUrl) continue
+      if (!item.thumbnailUrl) continue
       thumbnailUrlCache.set(item.fileId, item.thumbnailUrl)
     }
     const missing = imageIds.filter((id) => !thumbnailUrlCache.has(id))

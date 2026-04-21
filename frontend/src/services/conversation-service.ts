@@ -1,11 +1,12 @@
 import { apiFetchOkAuthed } from '../lib/api-authed'
-import type { AskSource } from './ask-service'
+import type { AskSource, ChatPayload } from './ask-service'
 
 export type ConversationMessage = {
   id: string
   role: 'user' | 'assistant'
   content: string
   sources?: AskSource[]
+  payload?: ChatPayload
   createdAt: string
 }
 

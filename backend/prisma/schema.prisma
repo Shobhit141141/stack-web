@@ -139,6 +139,7 @@ model ChatMessage {
   role           String  // "user" | "assistant"
   content        String
   sources        Json?   // AskSource[] for assistant messages
+  payload        Json?   // structured message payloads (quiz, quiz result, etc.)
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

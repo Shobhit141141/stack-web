@@ -3,7 +3,7 @@ import { HiOutlineMagnifyingGlass } from 'react-icons/hi2'
 import { semanticSearch, type SearchResult } from '../services/search-service'
 import { openKnownFile } from '../hooks/use-open-file'
 import { useImageThumbnailUrls } from '../hooks/use-image-thumbnail-urls'
-import { fileIcon, isImageFileType } from '../utils/file-display'
+import { fileIcon } from '../utils/file-display'
 import { Skeleton } from './ui/skeleton'
 
 export function SearchBar() {
@@ -129,13 +129,11 @@ export function SearchBar() {
                 >
                   <img
                     src={
-                      isImageFileType(r.type)
-                        ? (thumbnailUrls.get(r.fileId) ?? fileIcon(r.type))
-                        : fileIcon(r.type)
+                      thumbnailUrls.get(r.fileId) ?? fileIcon(r.type)
                     }
                     alt=""
                     className={`mt-0.5 h-8 w-8 shrink-0 rounded-md ${
-                      isImageFileType(r.type) ? 'object-cover' : ''
+                      thumbnailUrls.get(r.fileId) ? 'object-cover' : ''
                     }`}
                   />
                   <div className="min-w-0 flex-1">

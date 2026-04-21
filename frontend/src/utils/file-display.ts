@@ -8,6 +8,12 @@ export function isImageFileType(type: string): boolean {
   const t = type.toLowerCase()
   return (
     t.includes('image/') ||
+    t.includes('gif') ||
+    t.includes('bmp') ||
+    t.includes('svg') ||
+    t.includes('avif') ||
+    t.includes('heic') ||
+    t.includes('heif') ||
     t.includes('jpg') ||
     t.includes('jpeg') ||
     t.includes('png') ||

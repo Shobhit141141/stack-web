@@ -75,7 +75,7 @@ export async function createSignedThumbnailUrl(params: {
   const width = Math.max(32, Math.min(1024, Math.floor(params.width ?? 240)));
   const height = Math.max(32, Math.min(1024, Math.floor(params.height ?? 240)));
   const quality = Math.max(20, Math.min(100, Math.floor(params.quality ?? 60)));
-  const { data, error } = await supabase.storage
+  const transformed = await supabase.storage
     .from(env.SUPABASE_STORAGE_BUCKET)
     .createSignedUrl(params.storagePath, ttl, {
       transform: {
@@ -85,8 +85,27 @@ export async function createSignedThumbnailUrl(params: {
         resize: "cover",
       },
     });
-  if (error || !data?.signedUrl) {
-    throw new Error(error?.message ?? "Could not create signed thumbnail URL");
+  if (!transformed.error && transformed.data?.signedUrl) {
+    return transformed.data.signedUrl;
   }
-  return data.signedUrl;
+  const msg = transformed.error?.message ?? "";
+  const transformUnavailable =
+    /feature\s*not\s*enabled/i.test(msg) ||
+    /FeatureNotEnabled/i.test(msg) ||
+    /transform/i.test(msg);
+  if (!transformUnavailable) {
+    throw new Error(msg || "Could not create signed thumbnail URL");
+  }
+
+  const plain = await supabase.storage
+    .from(env.SUPABASE_STORAGE_BUCKET)
+    .createSignedUrl(params.storagePath, ttl);
+  if (plain.error || !plain.data?.signedUrl) {
+    throw new Error(
+      plain.error?.message ??
+        transformed.error?.message ??
+        "Could not create fallback signed URL"
+    );
+  }
+  return plain.data.signedUrl;
 }
