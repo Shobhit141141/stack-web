@@ -10,6 +10,7 @@ const listSelect = {
   mimeType: true,
   size: true,
   storagePath: true,
+  thumbnailStoragePath: true,
   workspaceId: true,
   createdAt: true,
   contentRef: {
@@ -45,6 +46,7 @@ export async function createFileRecord(
     mimeType: string;
     size: number;
     storagePath: string;
+    thumbnailStoragePath?: string | null;
     sourceType?: string;
     sourceUrl?: string | null;
     workspaceId?: string | null;
@@ -59,6 +61,9 @@ export async function createFileRecord(
       mimeType: data.mimeType,
       size: data.size,
       storagePath: data.storagePath,
+      ...(data.thumbnailStoragePath !== undefined && data.thumbnailStoragePath !== null
+        ? { thumbnailStoragePath: data.thumbnailStoragePath }
+        : {}),
       sourceType: data.sourceType ?? "upload",
       sourceUrl: data.sourceUrl ?? null,
       ...(data.workspaceId !== undefined ? { workspaceId: data.workspaceId } : {}),
@@ -156,6 +161,7 @@ export async function findFileByIdForUser(id: string, userId: string) {
       mimeType: true,
       size: true,
       storagePath: true,
+      thumbnailStoragePath: true,
       workspaceId: true,
       createdAt: true,
       contentRef: {
@@ -240,6 +246,7 @@ export type WorkspaceFileDeleteRow = {
   id: string;
   contentId: string;
   storagePath: string;
+  thumbnailStoragePath: string | null;
 };
 
 export async function findFilesByIdsForUser(
@@ -320,7 +327,12 @@ export async function findFilesForWorkspaceDeleteForUser(
 ): Promise<WorkspaceFileDeleteRow[]> {
   return prisma.file.findMany({
     where: { userId, workspaceId },
-    select: { id: true, contentId: true, storagePath: true },
+    select: {
+      id: true,
+      contentId: true,
+      storagePath: true,
+      thumbnailStoragePath: true,
+    },
   });
 }
 

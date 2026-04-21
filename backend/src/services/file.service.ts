@@ -21,6 +21,10 @@ import type { FileDbClient } from "../repositories/file.repository.js";
 import * as workspaceRepository from "../repositories/workspace.repository.js";
 import * as workspaceService from "./workspace.service.js";
 import * as storageService from "./storage.service.js";
+import {
+  thumbnailPathForMainStoragePath,
+  tryBuildWebpThumbnail,
+} from "./image-thumbnail.service.js";
 import { getChunkVectorStore } from "../vector-store/index.js";
 import { prisma } from "../repositories/db.js";
 
@@ -34,6 +38,7 @@ function isImageMime(type: string): boolean {
 async function buildThumbnailUrlOrNull(params: {
   accessToken: string;
   storagePath: string;
+  thumbnailStoragePath?: string | null;
   mimeType: string;
 }): Promise<string | null> {
   if (!isImageMime(params.mimeType)) return null;
@@ -41,10 +46,8 @@ async function buildThumbnailUrlOrNull(params: {
     return await storageService.createSignedThumbnailUrl({
       accessToken: params.accessToken,
       storagePath: params.storagePath,
+      thumbnailStoragePath: params.thumbnailStoragePath,
       expiresIn: env.SIGNED_URL_EXPIRES_SECONDS,
-      width: 240,
-      height: 240,
-      quality: 60,
     });
   } catch {
     return null;
@@ -72,6 +75,7 @@ export async function commitUserFileRecordAfterStorage(params: {
   mimeType: string;
   sizeBytes: number;
   storagePath: string;
+  thumbnailStoragePath?: string | null;
   sourceType: string;
   sourceUrl?: string | null;
   workspaceId?: string | null;
@@ -120,6 +124,9 @@ export async function commitUserFileRecordAfterStorage(params: {
         mimeType: params.mimeType,
         size: params.sizeBytes,
         storagePath: params.storagePath,
+        ...(params.thumbnailStoragePath
+          ? { thumbnailStoragePath: params.thumbnailStoragePath }
+          : {}),
         sourceType: params.sourceType,
         sourceUrl: params.sourceUrl ?? null,
         ...(params.workspaceId !== undefined && params.workspaceId !== null
@@ -248,6 +255,27 @@ export async function uploadUserFile(params: {
     throw new HttpError(502, "Could not store file");
   }
 
+  let thumbnailStoragePath: string | undefined;
+  if (isImageMime(params.mimeType)) {
+    const thumbBuf = await tryBuildWebpThumbnail(params.buffer);
+    if (thumbBuf) {
+      const thumbPath = thumbnailPathForMainStoragePath(storagePath);
+      try {
+        await storageService.uploadToFilesBucket({
+          accessToken: params.accessToken,
+          storagePath: thumbPath,
+          body: thumbBuf,
+          contentType: "image/webp",
+        });
+        thumbnailStoragePath = thumbPath;
+      } catch (e) {
+        log.warn(
+          `thumbnail upload skipped path=${thumbPath}: ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+    }
+  }
+
   if (params.workspaceId) {
     await workspaceService.assertWorkspaceOwned(
       params.userId,
@@ -263,6 +291,7 @@ export async function uploadUserFile(params: {
       mimeType: params.mimeType,
       sizeBytes: params.buffer.length,
       storagePath,
+      ...(thumbnailStoragePath ? { thumbnailStoragePath } : {}),
       sourceType: "upload",
       sourceUrl: null,
       workspaceId: params.workspaceId ?? null,
@@ -271,6 +300,11 @@ export async function uploadUserFile(params: {
     await storageService
       .deleteFromFilesBucket(params.accessToken, storagePath)
       .catch(() => {});
+    if (thumbnailStoragePath) {
+      await storageService
+        .deleteFromFilesBucket(params.accessToken, thumbnailStoragePath)
+        .catch(() => {});
+    }
     throw e;
   }
 }
@@ -320,6 +354,7 @@ export async function listUserFiles(
       thumbnailUrl: await buildThumbnailUrlOrNull({
         accessToken: params.accessToken,
         storagePath: row.storagePath,
+        thumbnailStoragePath: row.thumbnailStoragePath,
         mimeType: row.mimeType,
       }),
       summary: row.contentRef.summary ?? null,
@@ -433,6 +468,11 @@ export async function deleteUserFile(params: {
   // delete storage first so failed storage removal never leaves db partially cleaned
   try {
     await storageService.deleteFromFilesBucket(params.accessToken, row.storagePath);
+    if (row.thumbnailStoragePath) {
+      await storageService
+        .deleteFromFilesBucket(params.accessToken, row.thumbnailStoragePath)
+        .catch(() => {});
+    }
   } catch (e) {
     logStorageUploadFailure(e, {
       storagePath: row.storagePath,
@@ -528,6 +568,11 @@ export async function deleteWorkspaceAndRelated(params: {
   try {
     await mapWithConcurrency(files, 6, async (f) => {
       await storageService.deleteFromFilesBucket(params.accessToken, f.storagePath);
+      if (f.thumbnailStoragePath) {
+        await storageService
+          .deleteFromFilesBucket(params.accessToken, f.thumbnailStoragePath)
+          .catch(() => {});
+      }
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -651,10 +696,8 @@ export async function getUserFileWithThumbnailUrl(params: {
     signedUrl = await storageService.createSignedThumbnailUrl({
       accessToken: params.accessToken,
       storagePath: row.storagePath,
+      thumbnailStoragePath: row.thumbnailStoragePath,
       expiresIn: env.SIGNED_URL_EXPIRES_SECONDS,
-      width: 240,
-      height: 240,
-      quality: 60,
     });
   } catch {
     throw new HttpError(502, "Could not generate thumbnail link");
@@ -691,6 +734,7 @@ export async function listRecentUserFiles(params: {
       thumbnailUrl: await buildThumbnailUrlOrNull({
         accessToken: params.accessToken,
         storagePath: row.storagePath,
+        thumbnailStoragePath: row.thumbnailStoragePath,
         mimeType: row.mimeType,
       }),
       createdAt: row.createdAt.toISOString(),

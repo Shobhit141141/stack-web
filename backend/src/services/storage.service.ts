@@ -1,5 +1,6 @@
 import { getSupabaseClientForAccessToken } from "../client/supabase.client.js";
 import { env } from "../config/env.js";
+import { log } from "../utils/logger/index.js";
 
 export function buildStorageObjectPath(
   userId: string,
@@ -62,50 +63,21 @@ export async function createSignedReadUrl(params: {
   return data.signedUrl;
 }
 
+/** signed read for pre-generated thumbnail object (webp) or original image when no thumb exists */
 export async function createSignedThumbnailUrl(params: {
   accessToken: string;
   storagePath: string;
+  thumbnailStoragePath?: string | null;
   expiresIn: number;
-  width?: number;
-  height?: number;
-  quality?: number;
 }): Promise<string> {
-  const supabase = getSupabaseClientForAccessToken(params.accessToken);
-  const ttl = clampSignedUrlExpiresSeconds(params.expiresIn);
-  const width = Math.max(32, Math.min(1024, Math.floor(params.width ?? 240)));
-  const height = Math.max(32, Math.min(1024, Math.floor(params.height ?? 240)));
-  const quality = Math.max(20, Math.min(100, Math.floor(params.quality ?? 60)));
-  const transformed = await supabase.storage
-    .from(env.SUPABASE_STORAGE_BUCKET)
-    .createSignedUrl(params.storagePath, ttl, {
-      transform: {
-        width,
-        height,
-        quality,
-        resize: "cover",
-      },
-    });
-  if (!transformed.error && transformed.data?.signedUrl) {
-    return transformed.data.signedUrl;
-  }
-  const msg = transformed.error?.message ?? "";
-  const transformUnavailable =
-    /feature\s*not\s*enabled/i.test(msg) ||
-    /FeatureNotEnabled/i.test(msg) ||
-    /transform/i.test(msg);
-  if (!transformUnavailable) {
-    throw new Error(msg || "Could not create signed thumbnail URL");
-  }
-
-  const plain = await supabase.storage
-    .from(env.SUPABASE_STORAGE_BUCKET)
-    .createSignedUrl(params.storagePath, ttl);
-  if (plain.error || !plain.data?.signedUrl) {
-    throw new Error(
-      plain.error?.message ??
-        transformed.error?.message ??
-        "Could not create fallback signed URL"
-    );
-  }
-  return plain.data.signedUrl;
+  const path = params.thumbnailStoragePath ?? params.storagePath;
+  const url = await createSignedReadUrl({
+    accessToken: params.accessToken,
+    storagePath: path,
+    expiresIn: params.expiresIn,
+  });
+  log.info(
+    `thumbnail signed url path=${path} source=${params.thumbnailStoragePath ? "pre_generated" : "original"}`
+  );
+  return url;
 }

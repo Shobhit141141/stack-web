@@ -25,6 +25,10 @@ import { scheduleExtractionAfterUpload } from "./extraction.service.js";
 import { scheduleImageIndexAfterUpload } from "./image-index.service.js";
 import { scheduleContentSummaryGeneration } from "./summary.service.js";
 import * as fileService from "./file.service.js";
+import {
+  thumbnailPathForMainStoragePath,
+  tryBuildWebpThumbnail,
+} from "./image-thumbnail.service.js";
 import * as storageService from "./storage.service.js";
 import * as workspaceService from "./workspace.service.js";
 import { extractReadableTextFromHtml } from "../utils/url-ingest/html-readability.util.js";
@@ -428,6 +432,27 @@ export async function processUrlIngestJob(
       throw new Error("Could not store file");
     }
 
+    let thumbnailStoragePath: string | undefined;
+    if (uploadMime.toLowerCase().startsWith("image/")) {
+      const thumbBuf = await tryBuildWebpThumbnail(uploadBody);
+      if (thumbBuf) {
+        const thumbPath = thumbnailPathForMainStoragePath(storagePath);
+        try {
+          await storageService.uploadToFilesBucket({
+            accessToken,
+            storagePath: thumbPath,
+            body: thumbBuf,
+            contentType: "image/webp",
+          });
+          thumbnailStoragePath = thumbPath;
+        } catch (e) {
+          log.warn(
+            `url-ingest thumbnail upload skipped path=${thumbPath}: ${e instanceof Error ? e.message : String(e)}`
+          );
+        }
+      }
+    }
+
     let shouldIndexContent: boolean;
     let file: Awaited<ReturnType<typeof fileRepository.createFileRecord>>;
     let contentId: string;
@@ -439,6 +464,7 @@ export async function processUrlIngestJob(
         mimeType: uploadMime,
         sizeBytes: uploadBody.length,
         storagePath,
+        ...(thumbnailStoragePath ? { thumbnailStoragePath } : {}),
         sourceType: "url",
         sourceUrl,
         workspaceId: workspaceId ?? null,
@@ -450,6 +476,11 @@ export async function processUrlIngestJob(
       await storageService
         .deleteFromFilesBucket(accessToken, storagePath)
         .catch(() => {});
+      if (thumbnailStoragePath) {
+        await storageService
+          .deleteFromFilesBucket(accessToken, thumbnailStoragePath)
+          .catch(() => {});
+      }
       throw e;
     }
 

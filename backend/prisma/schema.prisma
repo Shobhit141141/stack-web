@@ -76,6 +76,8 @@ model File {
   mimeType    String   @map("type")
   size        BigInt
   storagePath String   @map("storage_path")
+  /** pre-generated webp thumbnail next to original; null for non-images or legacy rows */
+  thumbnailStoragePath String? @map("thumbnail_storage_path")
   sourceType  String   @default("upload") @map("source_type")
   sourceUrl   String?  @map("source_url")
 
