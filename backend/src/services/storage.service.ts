@@ -61,3 +61,32 @@ export async function createSignedReadUrl(params: {
   }
   return data.signedUrl;
 }
+
+export async function createSignedThumbnailUrl(params: {
+  accessToken: string;
+  storagePath: string;
+  expiresIn: number;
+  width?: number;
+  height?: number;
+  quality?: number;
+}): Promise<string> {
+  const supabase = getSupabaseClientForAccessToken(params.accessToken);
+  const ttl = clampSignedUrlExpiresSeconds(params.expiresIn);
+  const width = Math.max(32, Math.min(1024, Math.floor(params.width ?? 240)));
+  const height = Math.max(32, Math.min(1024, Math.floor(params.height ?? 240)));
+  const quality = Math.max(20, Math.min(100, Math.floor(params.quality ?? 60)));
+  const { data, error } = await supabase.storage
+    .from(env.SUPABASE_STORAGE_BUCKET)
+    .createSignedUrl(params.storagePath, ttl, {
+      transform: {
+        width,
+        height,
+        quality,
+        resize: "cover",
+      },
+    });
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message ?? "Could not create signed thumbnail URL");
+  }
+  return data.signedUrl;
+}

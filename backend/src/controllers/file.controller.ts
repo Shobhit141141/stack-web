@@ -32,13 +32,20 @@ export async function listFiles(
   next: NextFunction
 ) {
   const userId = req.user?.id;
-  if (!userId) {
+  const token = req.accessToken;
+  if (!userId || !token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
   try {
     const parsed = parseFileListQuery(req.query as Record<string, unknown>);
-    const result = await fileService.listUserFiles(userId, parsed);
+    const result = await fileService.listUserFiles(
+      {
+        accessToken: token,
+        userId,
+      },
+      parsed
+    );
     res.json(result);
   } catch (e) {
     next(e);
@@ -51,13 +58,20 @@ export async function searchFiles(
   next: NextFunction
 ) {
   const userId = req.user?.id;
-  if (!userId) {
+  const token = req.accessToken;
+  if (!userId || !token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
   try {
     const parsed = parseSearchQuery(req.query as Record<string, unknown>);
-    const result = await fileService.listUserFiles(userId, parsed);
+    const result = await fileService.listUserFiles(
+      {
+        accessToken: token,
+        userId,
+      },
+      parsed
+    );
     res.json(result);
   } catch (e) {
     next(e);
@@ -88,12 +102,16 @@ export async function listRecentFiles(
   next: NextFunction
 ) {
   const userId = req.user?.id;
-  if (!userId) {
+  const token = req.accessToken;
+  if (!userId || !token) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
   try {
-    const result = await fileService.listRecentUserFiles(userId);
+    const result = await fileService.listRecentUserFiles({
+      accessToken: token,
+      userId,
+    });
     res.json(result);
   } catch (e) {
     next(e);
@@ -229,6 +247,35 @@ export async function getFileById(
   }
   try {
     const result = await fileService.getUserFileWithSignedUrl({
+      accessToken: token,
+      userId,
+      fileId: id,
+    });
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getFileThumbnailById(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  const token = req.accessToken;
+  if (!userId || !token) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const rawId = req.params.id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  if (!id || !isUuid(id)) {
+    res.status(400).json({ error: "Invalid file id" });
+    return;
+  }
+  try {
+    const result = await fileService.getUserFileWithThumbnailUrl({
       accessToken: token,
       userId,
       fileId: id,

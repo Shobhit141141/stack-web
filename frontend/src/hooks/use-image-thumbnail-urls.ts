@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchFileSignedUrl } from '../services/file-service'
+import { fetchFileThumbnailUrl } from '../services/file-service'
 import { isImageFileType } from '../utils/file-display'
 
 type ThumbnailInput = {
   fileId: string
   type: string
+  thumbnailUrl?: string | null
 }
 
 const thumbnailUrlCache = new Map<string, string>()
@@ -21,13 +22,17 @@ export function useImageThumbnailUrls(items: ThumbnailInput[]): Map<string, stri
   )
 
   useEffect(() => {
+    for (const item of items) {
+      if (!isImageFileType(item.type) || !item.thumbnailUrl) continue
+      thumbnailUrlCache.set(item.fileId, item.thumbnailUrl)
+    }
     const missing = imageIds.filter((id) => !thumbnailUrlCache.has(id))
     if (missing.length === 0) return
     let cancelled = false
     void Promise.all(
       missing.map(async (id) => {
         try {
-          const url = await fetchFileSignedUrl(id)
+          const url = await fetchFileThumbnailUrl(id)
           if (!cancelled) thumbnailUrlCache.set(id, url)
         } catch {
           // keep silent, fallback icon remains visible

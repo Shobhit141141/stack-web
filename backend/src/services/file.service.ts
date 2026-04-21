@@ -27,6 +27,30 @@ import { prisma } from "../repositories/db.js";
 const RECENTS_LIMIT = 15;
 const USER_FILE_QUOTA_PG_LOCK_NS = 582_019_411;
 
+function isImageMime(type: string): boolean {
+  return type.toLowerCase().startsWith("image/");
+}
+
+async function buildThumbnailUrlOrNull(params: {
+  accessToken: string;
+  storagePath: string;
+  mimeType: string;
+}): Promise<string | null> {
+  if (!isImageMime(params.mimeType)) return null;
+  try {
+    return await storageService.createSignedThumbnailUrl({
+      accessToken: params.accessToken,
+      storagePath: params.storagePath,
+      expiresIn: env.SIGNED_URL_EXPIRES_SECONDS,
+      width: 240,
+      height: 240,
+      quality: 60,
+    });
+  } catch {
+    return null;
+  }
+}
+
 // serializes per-user file quota checks across concurrent uploads
 async function acquireUserFileQuotaLock(
   db: Pick<typeof prisma, "$executeRaw">,
@@ -252,7 +276,10 @@ export async function uploadUserFile(params: {
 }
 
 export async function listUserFiles(
-  userId: string,
+  params: {
+    accessToken: string;
+    userId: string;
+  },
   parsed: ParsedFileListQuery
 ): Promise<{
   files: Array<{
@@ -261,6 +288,7 @@ export async function listUserFiles(
     type: string;
     size: number;
     workspaceId: string | null;
+    thumbnailUrl: string | null;
     summary: string | null;
     summaryStatus: "pending" | "ready" | "failed";
     createdAt: string;
@@ -268,9 +296,9 @@ export async function listUserFiles(
   pagination: { page: number; total: number };
 }> {
   if (parsed.workspaceId) {
-    await workspaceService.assertWorkspaceOwned(userId, parsed.workspaceId);
+    await workspaceService.assertWorkspaceOwned(params.userId, parsed.workspaceId);
   }
-  const where = buildFileWhere(userId, parsed);
+  const where = buildFileWhere(params.userId, parsed);
   const orderBy = buildFileOrderBy(parsed.sort);
   const skip = (parsed.page - 1) * parsed.limit;
   const [rows, total] = await Promise.all([
@@ -282,17 +310,25 @@ export async function listUserFiles(
     }),
     fileRepository.countFiles(where),
   ]);
-  return {
-    files: rows.map((row) => ({
+  const files = await Promise.all(
+    rows.map(async (row) => ({
       id: row.id,
       name: row.originalName,
       type: publicFileTypeLabel(row.originalName, row.mimeType),
       size: sizeToSafeNumber(row.size),
       workspaceId: row.workspaceId ?? null,
+      thumbnailUrl: await buildThumbnailUrlOrNull({
+        accessToken: params.accessToken,
+        storagePath: row.storagePath,
+        mimeType: row.mimeType,
+      }),
       summary: row.contentRef.summary ?? null,
       summaryStatus: row.contentRef.summaryStatus,
       createdAt: row.createdAt.toISOString(),
-    })),
+    }))
+  );
+  return {
+    files,
     pagination: {
       page: parsed.page,
       total,
@@ -593,28 +629,74 @@ export async function getUserFileWithSignedUrl(params: {
   };
 }
 
-export async function listRecentUserFiles(userId: string): Promise<{
+export async function getUserFileWithThumbnailUrl(params: {
+  accessToken: string;
+  userId: string;
+  fileId: string;
+}): Promise<{ signedUrl: string }> {
+  const row = await fileRepository.findFileByIdForUser(
+    params.fileId,
+    params.userId
+  );
+  if (!row) {
+    throw new HttpError(404, "File not found");
+  }
+
+  if (!isImageMime(row.mimeType)) {
+    throw new HttpError(400, "Thumbnails are only available for images");
+  }
+
+  let signedUrl: string;
+  try {
+    signedUrl = await storageService.createSignedThumbnailUrl({
+      accessToken: params.accessToken,
+      storagePath: row.storagePath,
+      expiresIn: env.SIGNED_URL_EXPIRES_SECONDS,
+      width: 240,
+      height: 240,
+      quality: 60,
+    });
+  } catch {
+    throw new HttpError(502, "Could not generate thumbnail link");
+  }
+
+  return { signedUrl };
+}
+
+export async function listRecentUserFiles(params: {
+  accessToken: string;
+  userId: string;
+}): Promise<{
   files: Array<{
     id: string;
     name: string;
     type: string;
     size: number;
     workspaceId: string | null;
+    thumbnailUrl: string | null;
     createdAt: string;
   }>;
 }> {
   const rows = await fileRepository.findRecentFilesForUser(
-    userId,
+    params.userId,
     RECENTS_LIMIT
   );
-  return {
-    files: rows.map((row) => ({
+  const files = await Promise.all(
+    rows.map(async (row) => ({
       id: row.id,
       name: row.originalName,
       type: publicFileTypeLabel(row.originalName, row.mimeType),
       size: sizeToSafeNumber(row.size),
       workspaceId: row.workspaceId ?? null,
+      thumbnailUrl: await buildThumbnailUrlOrNull({
+        accessToken: params.accessToken,
+        storagePath: row.storagePath,
+        mimeType: row.mimeType,
+      }),
       createdAt: row.createdAt.toISOString(),
-    })),
+    }))
+  );
+  return {
+    files,
   };
 }

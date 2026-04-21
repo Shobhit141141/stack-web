@@ -335,6 +335,11 @@ function FileCardGrid({
           src={isImageFileType(file.type) ? (previewUrl ?? fileIcon(file.type)) : fileIcon(file.type)}
           alt=""
           className="aspect-square w-full rounded-md object-cover"
+          loading="lazy"
+          decoding="async"
+          onError={(e) => {
+            e.currentTarget.src = fileIcon(file.type)
+          }}
         />
         <div className="flex w-full flex-col gap-0.5 overflow-hidden">
           <Text
@@ -444,6 +449,11 @@ function FileRowList({
             src={isImageFileType(file.type) ? (previewUrl ?? fileIcon(file.type)) : fileIcon(file.type)}
             alt=""
             className="h-8 w-8 shrink-0 rounded object-cover"
+            loading="lazy"
+            decoding="async"
+            onError={(e) => {
+              e.currentTarget.src = fileIcon(file.type)
+            }}
           />
           <div className="min-w-0">
             <Text
@@ -553,6 +563,7 @@ export function FileBrowserView({
     files.map((f) => ({
       fileId: f.id,
       type: f.type,
+      thumbnailUrl: f.thumbnailUrl ?? null,
     })),
   )
 

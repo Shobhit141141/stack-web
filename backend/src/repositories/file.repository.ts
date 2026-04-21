@@ -9,6 +9,7 @@ const listSelect = {
   originalName: true,
   mimeType: true,
   size: true,
+  storagePath: true,
   workspaceId: true,
   createdAt: true,
   contentRef: {

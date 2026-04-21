@@ -42,6 +42,12 @@ export async function fetchFileSignedUrl(fileId: string): Promise<string> {
   return body.signedUrl
 }
 
+export async function fetchFileThumbnailUrl(fileId: string): Promise<string> {
+  const res = await apiFetchOkAuthed(`/files/${fileId}/thumbnail`)
+  const body = (await res.json()) as { signedUrl: string }
+  return body.signedUrl
+}
+
 function filenameFromContentDisposition(header: string | null): string | undefined {
   if (!header) return undefined
   const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
