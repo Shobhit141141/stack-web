@@ -7,6 +7,8 @@ export const FILE_LIST_GRID_WITH_WORKSPACE = 'minmax(0,1fr) minmax(5.5rem,10rem)
 export function isImageFileType(type: string): boolean {
   const t = type.toLowerCase()
   return (
+    t === 'image' ||
+    t.startsWith('image') ||
     t.includes('image/') ||
     t.includes('gif') ||
     t.includes('bmp') ||

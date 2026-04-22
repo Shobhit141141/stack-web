@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { HiOutlineDocumentDuplicate } from 'react-icons/hi2'
 import { ChatAnswerContent, ChatSourceFileChips } from './chat-answer-content'
 import { ChatQuizCard } from './chat-quiz-card'
+import { useImageThumbnailUrls } from '../../hooks/use-image-thumbnail-urls'
 import {
   postAsk,
   postQuizSubmit,
@@ -14,6 +15,7 @@ import { fetchCurrentWorkspaceConversation } from '../../services/conversation-s
 import { fetchFileList } from '../../services/file-service'
 import { openKnownFile } from '../../hooks/use-open-file'
 import type { FileItem } from '../../types/file'
+import { fileIcon, isImageFileType } from '../../utils/file-display'
 
 type ChatTurn = {
   id?: string
@@ -43,6 +45,7 @@ function renderTextWithMentionHighlights(
   text: string,
   isUserBubble: boolean,
   files: FileItem[],
+  thumbnailUrls: Map<string, string>,
 ) {
   const byName = new Map(files.map((f) => [f.name.toLowerCase(), f]))
   const parts = text.split(MENTION_TOKEN_RE)
@@ -53,6 +56,8 @@ function renderTextWithMentionHighlights(
 
     const rawName = part.startsWith('@{') ? part.slice(2, -1) : part.slice(1)
     const file = byName.get(rawName.toLowerCase())
+    const previewUrl = file ? thumbnailUrls.get(file.id) : undefined
+    const iconSrc = file ? fileIcon(file.type) : fileIconForName(rawName)
 
     const chip = (
       <span
@@ -70,9 +75,17 @@ function renderTextWithMentionHighlights(
         ].join(' ')}
       >
         <img
-          src={fileIconForName(rawName)}
+          src={previewUrl ?? iconSrc}
           alt=""
-          className="size-3.5 shrink-0"
+          className={[
+            'shrink-0',
+            previewUrl ? 'size-4 rounded object-cover' : 'size-3.5',
+          ].join(' ')}
+          loading="lazy"
+          decoding="async"
+          onError={(e) => {
+            e.currentTarget.src = iconSrc
+          }}
         />
         <span className="max-w-48 truncate">{rawName}</span>
       </span>
@@ -235,6 +248,14 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     )
     return list.slice(0, 40)
   }, [workspaceFiles, mentionFilter])
+  const mentionThumbnailUrls = useImageThumbnailUrls(
+    workspaceFiles.map((file) => ({
+      fileId: file.id,
+      type: file.type,
+      thumbnailUrl:
+        isImageFileType(file.type) || file.thumbnailUrl ? file.thumbnailUrl ?? null : null,
+    })),
+  )
 
   useEffect(() => {
     const el = scrollRef.current
@@ -410,14 +431,32 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       toast.error('Conversation is not ready yet. Please try again in a moment.')
       return
     }
-    if (!turn.id) {
+    let quizMessageId = turn.id
+    if (!quizMessageId && turn.payload?.kind === 'quiz') {
+      try {
+        const snapshot = await fetchCurrentWorkspaceConversation(workspaceId)
+        const matched = [...snapshot.messages]
+          .reverse()
+          .find(
+            (m) =>
+              m.role === 'assistant' &&
+              !!m.payload &&
+              m.payload.kind === 'quiz' &&
+              m.payload.quizId === turn.payload?.quizId,
+          )
+        quizMessageId = matched?.id
+      } catch {
+        // fall through to standard error below
+      }
+    }
+    if (!quizMessageId) {
       toast.error('Quiz message reference is missing.')
       return
     }
     try {
       const result = await postQuizSubmit({
         conversationId,
-        quizMessageId: turn.id,
+        quizMessageId,
         answers,
       })
       setTurns((prev) => [
@@ -499,7 +538,12 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                 </>
               ) : (
                 <p className="whitespace-pre-wrap">
-                  {renderTextWithMentionHighlights(t.text, true, workspaceFiles)}
+                  {renderTextWithMentionHighlights(
+                    t.text,
+                    true,
+                    workspaceFiles,
+                    mentionThumbnailUrls,
+                  )}
                 </p>
               )}
             </div>

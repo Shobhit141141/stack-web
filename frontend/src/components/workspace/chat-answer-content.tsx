@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { fileIcon } from '../../utils/file-display'
 import { openKnownFile } from '../../hooks/use-open-file'
+import { useImageThumbnailUrls } from '../../hooks/use-image-thumbnail-urls'
 import type { AskSource } from '../../services/ask-service'
 
 const FILE_REF_RE = /\[File:\s*([^\]]+?)\s*\]/g
@@ -10,6 +11,17 @@ function iconSrcForFileName(name: string): string {
   if (l.endsWith('.pdf')) return fileIcon('pdf')
   if (l.endsWith('.docx')) return fileIcon('docx')
   return fileIcon('file')
+}
+
+function isImageFileName(name: string): boolean {
+  const l = name.toLowerCase()
+  return (
+    l.endsWith('.jpg') ||
+    l.endsWith('.jpeg') ||
+    l.endsWith('.png') ||
+    l.endsWith('.webp') ||
+    l.endsWith('.gif')
+  )
 }
 
 function buildNameToFileId(sources: AskSource[]): Map<string, string> {
@@ -48,9 +60,11 @@ function parseAnswerIntoSegments(text: string): Segment[] {
 function FileRefChip({
   displayName,
   fileId,
+  previewUrl,
 }: {
   displayName: string
   fileId: string | undefined
+  previewUrl?: string
 }) {
   const icon = iconSrcForFileName(displayName)
   const enabled = Boolean(fileId)
@@ -69,7 +83,19 @@ function FileRefChip({
           : 'cursor-default opacity-70'
       }`}
     >
-      <img src={icon} alt="" className="size-3.5 shrink-0" />
+      <img
+        src={previewUrl ?? icon}
+        alt=""
+        className={[
+          'shrink-0',
+          previewUrl ? 'size-4 rounded object-cover' : 'size-3.5',
+        ].join(' ')}
+        loading="lazy"
+        decoding="async"
+        onError={(e) => {
+          e.currentTarget.src = icon
+        }}
+      />
       <span className="max-w-56 truncate">{displayName}</span>
     </button>
   )
@@ -84,6 +110,14 @@ type Props = {
 export function ChatAnswerContent({ text, sources }: Props) {
   const nameToId = useMemo(() => buildNameToFileId(sources), [sources])
   const segments = useMemo(() => parseAnswerIntoSegments(text), [text])
+  const thumbnailUrls = useImageThumbnailUrls(
+    sources.map((s) => ({
+      fileId: s.fileId,
+      // use filename as type signal for image extension detection in this hook flow
+      type: isImageFileName(s.fileName) ? 'image' : 'file',
+      thumbnailUrl: null,
+    })),
+  )
 
   if (segments.length === 0) {
     return <span className="whitespace-pre-wrap">{text}</span>
@@ -101,6 +135,7 @@ export function ChatAnswerContent({ text, sources }: Props) {
             key={i}
             displayName={seg.displayName}
             fileId={id}
+            previewUrl={id ? thumbnailUrls.get(id) : undefined}
           />
         )
       })}
@@ -117,6 +152,13 @@ export function ChatSourceFileChips({ sources }: { sources: AskSource[] }) {
     }
     return [...byId.values()]
   }, [sources])
+  const thumbnailUrls = useImageThumbnailUrls(
+    unique.map((s) => ({
+      fileId: s.fileId,
+      type: isImageFileName(s.fileName) ? 'image' : 'file',
+      thumbnailUrl: null,
+    })),
+  )
 
   if (unique.length === 0) return null
 
@@ -125,7 +167,12 @@ export function ChatSourceFileChips({ sources }: { sources: AskSource[] }) {
       <p className="mb-2 text-xs font-medium text-neutral-500">Sources</p>
       <div className="flex flex-wrap gap-2">
         {unique.map((s) => (
-          <FileRefChip key={s.fileId} displayName={s.fileName} fileId={s.fileId} />
+          <FileRefChip
+            key={s.fileId}
+            displayName={s.fileName}
+            fileId={s.fileId}
+            previewUrl={thumbnailUrls.get(s.fileId)}
+          />
         ))}
       </div>
     </div>

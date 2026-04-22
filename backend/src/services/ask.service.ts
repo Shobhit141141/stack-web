@@ -610,8 +610,20 @@ export async function askUserFiles(params: {
     }))
     .filter((h) => h.score >= minScore);
 
+  // fallback for explicit file scoping: if strict threshold removes all neighbors,
+  // still use nearest chunks so tagged/specified files can be answered.
+  const effectiveHits: ChunkHit[] =
+    hits.length > 0
+      ? hits
+      : effectiveFileIds && effectiveFileIds.length > 0 && rows.length > 0
+      ? rows.map((r) => ({
+          ...r,
+          score: distanceToScore(r.distance),
+        }))
+      : [];
+
   const byContent = new Map<string, ChunkHit[]>();
-  for (const h of hits) {
+  for (const h of effectiveHits) {
     const arr = byContent.get(h.contentId) ?? [];
     arr.push(h);
 
@@ -651,7 +663,7 @@ export async function askUserFiles(params: {
     selectedChunks = selectedChunks.concat(p.chunks);
   }
 
-  const chunksAfterScoreFilter = hits.length;
+  const chunksAfterScoreFilter = effectiveHits.length;
 
   const contentIdsBeforeDedup = [...new Set(packs.map((p) => p.contentId))].sort();
   const contentIdsAfterDedup = topPacks.map((p) => p.contentId);

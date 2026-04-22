@@ -22,12 +22,19 @@ export function useImageThumbnailUrls(items: ThumbnailInput[]): Map<string, stri
   )
 
   useEffect(() => {
+    let warmed = false
     for (const item of items) {
       if (!item.thumbnailUrl) continue
+      const prev = thumbnailUrlCache.get(item.fileId)
+      if (prev === item.thumbnailUrl) continue
       thumbnailUrlCache.set(item.fileId, item.thumbnailUrl)
+      warmed = true
     }
     const missing = imageIds.filter((id) => !thumbnailUrlCache.has(id))
-    if (missing.length === 0) return
+    if (missing.length === 0) {
+      if (warmed) setVersion((v) => v + 1)
+      return
+    }
     let cancelled = false
     void Promise.all(
       missing.map(async (id) => {
