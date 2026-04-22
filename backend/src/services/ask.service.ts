@@ -57,6 +57,14 @@ type QuizPayload = {
   answerKey: QuizAnswerKeyItem[];
 };
 
+type QuizPayloadPublic = {
+  kind: "quiz";
+  quizId: string;
+  title: string;
+  prompt: string;
+  questions: QuizQuestionPublic[];
+};
+
 type QuizSubmissionPayload = {
   kind: "quiz_submission";
   quizId: string;
@@ -198,6 +206,16 @@ async function generateQuizFromContext(params: {
       correctOptionId: q.correctOptionId,
       explanation: q.explanation,
     })),
+  };
+}
+
+function toPublicQuizPayload(payload: QuizPayload): QuizPayloadPublic {
+  return {
+    kind: "quiz",
+    quizId: payload.quizId,
+    title: payload.title,
+    prompt: payload.prompt,
+    questions: payload.questions,
   };
 }
 
@@ -772,6 +790,7 @@ export async function askUserFiles(params: {
       context,
       prompt: quizPrompt,
     });
+    const quizPayloadPublic = toPublicQuizPayload(quizPayload);
     const answer = `Quiz ready: ${quizPayload.title} (${quizPayload.questions.length} questions). Select options and submit when ready.`;
     if (conversationId) {
       await conversationRepository.createMessage({
@@ -787,7 +806,7 @@ export async function askUserFiles(params: {
       });
       await conversationRepository.touchConversationUpdatedAt(conversationId);
     }
-    return { answer, sources: [], payload: quizPayload };
+    return { answer, sources: [], payload: quizPayloadPublic };
   }
 
   const systemInstruction = buildAskSystemInstruction();

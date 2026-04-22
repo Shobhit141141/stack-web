@@ -20,6 +20,16 @@ export type ConversationSnapshot = {
   messages: ConversationMessage[];
 };
 
+function sanitizeMessagePayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const p = payload as Record<string, unknown>;
+  if (p.kind === "quiz") {
+    const { answerKey: _hidden, ...rest } = p;
+    return rest;
+  }
+  return payload;
+}
+
 function toMessage(
   row: conversationRepository.ChatMessageRow
 ): ConversationMessage {
@@ -28,7 +38,7 @@ function toMessage(
     role: row.role === "assistant" ? "assistant" : "user",
     content: row.content,
     ...(row.sources !== null ? { sources: row.sources } : {}),
-    ...(row.payload !== null ? { payload: row.payload } : {}),
+    ...(row.payload !== null ? { payload: sanitizeMessagePayload(row.payload) } : {}),
     createdAt: row.createdAt.toISOString(),
   };
 }

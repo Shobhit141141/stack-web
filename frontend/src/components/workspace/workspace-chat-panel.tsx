@@ -4,12 +4,15 @@ import toast from 'react-hot-toast'
 import { HiOutlineDocumentDuplicate } from 'react-icons/hi2'
 import { ChatAnswerContent, ChatSourceFileChips } from './chat-answer-content'
 import { ChatQuizCard } from './chat-quiz-card'
+import { ChatQuizResultCard } from './chat-quiz-result-card'
 import { useImageThumbnailUrls } from '../../hooks/use-image-thumbnail-urls'
 import {
   postAsk,
   postQuizSubmit,
   type AskSource,
   type ChatPayload,
+  type QuizResultPayload,
+  type QuizSubmissionPayload,
 } from '../../services/ask-service'
 import { fetchCurrentWorkspaceConversation } from '../../services/conversation-service'
 import { fetchFileList } from '../../services/file-service'
@@ -31,12 +34,29 @@ type Props = {
 }
 
 const FILE_DRAG_MIME = 'application/x-stack-file'
+const SLASH_COMMAND_RE = /(?:^|\s)\/([a-z]*)$/i
+const QUIZ_COMMAND = '/quiz'
+const QUIZ_TOKEN_RE = /(^|\s)\/quiz\b/gi
 
 type MentionParseResult = {
   fileIds: string[]
   fileNames: string[]
   normalizedQuestion: string
 }
+
+type SlashCommand = {
+  command: string
+  label: string
+  description: string
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    command: QUIZ_COMMAND,
+    label: 'Quiz Mode',
+    description: 'Generate a quiz from tagged or workspace files',
+  },
+]
 
 // matches @filename.pdf or @{filename with spaces.pdf} — dots allowed in bare mentions
 const MENTION_TOKEN_RE = /(@\{[^}]+\}|@[\w][\w.\-]*)/g
@@ -146,6 +166,20 @@ function buildAskQuery(userText: string, fileNames: string[]): string {
   return `The user tagged these workspace files for this question; treat them as the primary context: ${names}.\n\nQuestion:\n${q}`
 }
 
+function stripQuizTokenAnywhere(input: string): string {
+  return input.replace(QUIZ_TOKEN_RE, '$1').replace(/\s{2,}/g, ' ').trimStart()
+}
+
+function stripTrailingSlashCommandAtCursor(input: string, cursor: number): string {
+  const safeCursor = Math.max(0, Math.min(cursor, input.length))
+  const before = input.slice(0, safeCursor)
+  const after = input.slice(safeCursor)
+  const m = before.match(SLASH_COMMAND_RE)
+  if (!m) return input
+  const tokenStart = before.length - m[0].length
+  return `${before.slice(0, tokenStart)}${after}`.replace(/\s{2,}/g, ' ')
+}
+
 // shows three animated dots while waiting for the assistant
 function AssistantTypingRow() {
   return (
@@ -180,6 +214,9 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   const [mentionStart, setMentionStart] = useState(0)
   const [mentionFilter, setMentionFilter] = useState('')
   const [mentionHighlight, setMentionHighlight] = useState(0)
+  const [slashOpen, setSlashOpen] = useState(false)
+  const [slashFilter, setSlashFilter] = useState('')
+  const [slashHighlight, setSlashHighlight] = useState(0)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -248,6 +285,29 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     )
     return list.slice(0, 40)
   }, [workspaceFiles, mentionFilter])
+  const filteredSlashCommands = useMemo(() => {
+    const f = slashFilter.trim().toLowerCase()
+    return SLASH_COMMANDS.filter((cmd) =>
+      f ? cmd.command.slice(1).toLowerCase().startsWith(f) : true,
+    )
+  }, [slashFilter])
+  const [quizMode, setQuizMode] = useState(false)
+  const quizResultById = useMemo(() => {
+    const map = new Map<string, QuizResultPayload>()
+    for (const t of turns) {
+      if (t.role !== 'assistant' || !t.payload || t.payload.kind !== 'quiz_result') continue
+      map.set(t.payload.quizId, t.payload)
+    }
+    return map
+  }, [turns])
+  const quizSubmissionById = useMemo(() => {
+    const map = new Map<string, QuizSubmissionPayload>()
+    for (const t of turns) {
+      if (t.role !== 'user' || !t.payload || t.payload.kind !== 'quiz_submission') continue
+      map.set(t.payload.quizId, t.payload)
+    }
+    return map
+  }, [turns])
   const mentionThumbnailUrls = useImageThumbnailUrls(
     workspaceFiles.map((file) => ({
       fileId: file.id,
@@ -282,10 +342,59 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     setMentionHighlight(0)
   }
 
+  function syncSlashFromValue(value: string, cursor: number) {
+    const before = value.slice(0, cursor)
+    const m = before.match(SLASH_COMMAND_RE)
+    if (!m) {
+      setSlashOpen(false)
+      return
+    }
+    setSlashOpen(true)
+    setSlashFilter(m[1] ?? '')
+    setSlashHighlight(0)
+  }
+
   function syncMentionFromTextarea() {
     const ta = textareaRef.current
     if (!ta) return
     syncMentionFromValue(ta.value, ta.selectionStart)
+  }
+
+  function activateQuizMode(value?: string, cursor?: number) {
+    const base = value ?? query
+    const next = stripQuizTokenAnywhere(
+      stripTrailingSlashCommandAtCursor(base, cursor ?? base.length),
+    )
+    setQuizMode(true)
+    setQuery(next)
+    setSlashOpen(false)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      const pos = next.length
+      textareaRef.current?.setSelectionRange(pos, pos)
+    })
+  }
+
+  function removeQuizMode() {
+    setQuizMode(false)
+    const next = stripQuizTokenAnywhere(query)
+    setQuery(next)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      const pos = next.length
+      textareaRef.current?.setSelectionRange(pos, pos)
+    })
+  }
+
+  function applySlashCommand(
+    cmd: SlashCommand,
+    value?: string,
+    cursor?: number,
+  ) {
+    if (cmd.command === QUIZ_COMMAND) {
+      activateQuizMode(value, cursor)
+      return
+    }
   }
 
   function selectMentionFile(file: FileItem) {
@@ -351,9 +460,12 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     setSending(true)
     setQuery('')
     setMentionOpen(false)
+    setSlashOpen(false)
     setTurns((prev) => [...prev, { role: 'user', text: q }])
 
-    const askQuery = buildAskQuery(mentionInfo.normalizedQuestion || q, mentionInfo.fileNames)
+    const normalizedQuestion = mentionInfo.normalizedQuestion || q
+    const wireQuestion = quizMode ? `${QUIZ_COMMAND} ${normalizedQuestion}` : normalizedQuestion
+    const askQuery = buildAskQuery(wireQuestion, mentionInfo.fileNames)
     const fileIds = mentionInfo.fileIds.length ? mentionInfo.fileIds : undefined
 
     try {
@@ -386,6 +498,33 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   }
 
   function handleTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashOpen && filteredSlashCommands.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashHighlight((i) => (i + 1) % filteredSlashCommands.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashHighlight((i) => (i - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        applySlashCommand(
+          filteredSlashCommands[slashHighlight]!,
+          e.currentTarget.value,
+          e.currentTarget.selectionStart,
+        )
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSlashOpen(false)
+        return
+      }
+    }
+
     if (mentionOpen && filteredMentionFiles.length) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -408,7 +547,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         return
       }
     }
-    if (!mentionOpen && e.key === 'Enter' && !e.shiftKey) {
+    if (!mentionOpen && !slashOpen && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       e.currentTarget.form?.requestSubmit()
     }
@@ -526,11 +665,17 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               </div>
               {t.role === 'assistant' ? (
                 <>
-                  <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
+                  {t.payload?.kind === 'quiz_result' ? (
+                    <ChatQuizResultCard result={t.payload} />
+                  ) : (
+                    <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
+                  )}
                   {t.payload && t.payload.kind === 'quiz' ? (
                     <ChatQuizCard
                       quiz={t.payload}
                       disabled={sending || hydrating}
+                      result={quizResultById.get(t.payload.quizId)}
+                      submission={quizSubmissionById.get(t.payload.quizId)}
                       onSubmit={(answers) => handleQuizSubmit(t, answers)}
                     />
                   ) : null}
@@ -587,6 +732,32 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           </div>
         ) : null}
 
+        {slashOpen && filteredSlashCommands.length > 0 ? (
+          <div
+            className="absolute bottom-full left-3 right-3 z-10 mb-1 overflow-hidden rounded-lg border border-neutral-200 bg-white py-1 shadow-md"
+            role="listbox"
+            aria-label="Commands"
+          >
+            {filteredSlashCommands.map((cmd, idx) => (
+              <button
+                key={cmd.command}
+                type="button"
+                role="option"
+                aria-selected={idx === slashHighlight}
+                className={`flex w-full flex-col px-3 py-2 text-left ${
+                  idx === slashHighlight ? 'bg-neutral-100' : 'hover:bg-neutral-50'
+                }`}
+                onMouseDown={(ev) => ev.preventDefault()}
+                onMouseEnter={() => setSlashHighlight(idx)}
+                onClick={() => applySlashCommand(cmd)}
+              >
+                <span className="text-sm font-medium text-neutral-900">{cmd.command}</span>
+                <span className="text-xs text-neutral-500">{cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {mentionOpen && !filesLoading && workspaceFiles.length > 0 && filteredMentionFiles.length === 0 && mentionFilter !== '' ? (
           <div className="absolute bottom-full left-3 right-3 z-10 mb-1 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-500 shadow-md">
             No files match “{mentionFilter}”.
@@ -610,6 +781,31 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           ) : null
         })()}
 
+        <div className="mb-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => activateQuizMode()}
+            className={[
+              'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+              quizMode
+                ? 'border-violet-300 bg-violet-100 text-violet-800'
+                : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100',
+            ].join(' ')}
+          >
+            {quizMode ? 'Quiz Mode On' : 'Quiz'}
+          </button>
+          {quizMode ? (
+            <button
+              type="button"
+              onClick={() => removeQuizMode()}
+              className="rounded-full border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100"
+              title="Disable quiz mode"
+            >
+              {QUIZ_COMMAND} ×
+            </button>
+          ) : null}
+        </div>
+
         <div className="flex gap-2">
           <textarea
             ref={textareaRef}
@@ -617,12 +813,33 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
             onChange={(e) => {
               const value = e.target.value
               const cursor = e.target.selectionStart
-              setQuery(value)
-              syncMentionFromValue(value, cursor)
+              const hasQuizToken = QUIZ_TOKEN_RE.test(value)
+              QUIZ_TOKEN_RE.lastIndex = 0
+              const cleaned = hasQuizToken ? stripQuizTokenAnywhere(value) : value
+              if (hasQuizToken) setQuizMode(true)
+              setQuery(cleaned)
+              const nextCursor = Math.min(cursor, cleaned.length)
+              syncMentionFromValue(cleaned, nextCursor)
+              syncSlashFromValue(cleaned, nextCursor)
             }}
-            onKeyUp={() => syncMentionFromTextarea()}
-            onClick={() => syncMentionFromTextarea()}
-            onSelect={() => syncMentionFromTextarea()}
+            onKeyUp={() => {
+              syncMentionFromTextarea()
+              const ta = textareaRef.current
+              if (!ta) return
+              syncSlashFromValue(ta.value, ta.selectionStart)
+            }}
+            onClick={() => {
+              syncMentionFromTextarea()
+              const ta = textareaRef.current
+              if (!ta) return
+              syncSlashFromValue(ta.value, ta.selectionStart)
+            }}
+            onSelect={() => {
+              syncMentionFromTextarea()
+              const ta = textareaRef.current
+              if (!ta) return
+              syncSlashFromValue(ta.value, ta.selectionStart)
+            }}
             onKeyDown={handleTextareaKeyDown}
             onDragOver={(e) => {
               if (e.dataTransfer.types.includes(FILE_DRAG_MIME)) e.preventDefault()
