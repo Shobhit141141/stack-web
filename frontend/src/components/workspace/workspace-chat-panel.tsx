@@ -5,6 +5,7 @@ import { HiOutlineDocumentDuplicate } from 'react-icons/hi2'
 import { ChatAnswerContent, ChatSourceFileChips } from './chat-answer-content'
 import { ChatQuizCard } from './chat-quiz-card'
 import { ChatQuizResultCard } from './chat-quiz-result-card'
+import { ChatFlashcardsCard } from './chat-flashcards-card'
 import { useImageThumbnailUrls } from '../../hooks/use-image-thumbnail-urls'
 import {
   postAsk,
@@ -36,7 +37,9 @@ type Props = {
 const FILE_DRAG_MIME = 'application/x-stack-file'
 const SLASH_COMMAND_RE = /(?:^|\s)\/([a-z]*)$/i
 const QUIZ_COMMAND = '/quiz'
+const FLASHCARDS_COMMAND = '/flashcards'
 const QUIZ_TOKEN_RE = /(^|\s)\/quiz\b/gi
+const FLASHCARDS_TOKEN_RE = /(^|\s)\/flashcards\b/gi
 
 type MentionParseResult = {
   fileIds: string[]
@@ -56,7 +59,13 @@ const SLASH_COMMANDS: SlashCommand[] = [
     label: 'Quiz Mode',
     description: 'Generate a quiz from tagged or workspace files',
   },
+  {
+    command: FLASHCARDS_COMMAND,
+    label: 'Flashcards Mode',
+    description: 'Generate flashcards from tagged or workspace files',
+  },
 ]
+type StudyMode = 'quiz' | 'flashcards' | null
 
 // matches @filename.pdf or @{filename with spaces.pdf} — dots allowed in bare mentions
 const MENTION_TOKEN_RE = /(@\{[^}]+\}|@[\w][\w.\-]*)/g
@@ -170,6 +179,10 @@ function stripQuizTokenAnywhere(input: string): string {
   return input.replace(QUIZ_TOKEN_RE, '$1').replace(/\s{2,}/g, ' ').trimStart()
 }
 
+function stripFlashcardsTokenAnywhere(input: string): string {
+  return input.replace(FLASHCARDS_TOKEN_RE, '$1').replace(/\s{2,}/g, ' ').trimStart()
+}
+
 function stripTrailingSlashCommandAtCursor(input: string, cursor: number): string {
   const safeCursor = Math.max(0, Math.min(cursor, input.length))
   const before = input.slice(0, safeCursor)
@@ -217,6 +230,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   const [slashOpen, setSlashOpen] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')
   const [slashHighlight, setSlashHighlight] = useState(0)
+  const [studyMode, setStudyMode] = useState<StudyMode>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -291,7 +305,9 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       f ? cmd.command.slice(1).toLowerCase().startsWith(f) : true,
     )
   }, [slashFilter])
-  const [quizMode, setQuizMode] = useState(false)
+  const isQuizMode = studyMode === 'quiz'
+  const isFlashcardsMode = studyMode === 'flashcards'
+  const isStudyMode = studyMode !== null
   const quizResultById = useMemo(() => {
     const map = new Map<string, QuizResultPayload>()
     for (const t of turns) {
@@ -360,12 +376,14 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     syncMentionFromValue(ta.value, ta.selectionStart)
   }
 
-  function activateQuizMode(value?: string, cursor?: number) {
+  function activateStudyMode(mode: Exclude<StudyMode, null>, value?: string, cursor?: number) {
     const base = value ?? query
-    const next = stripQuizTokenAnywhere(
-      stripTrailingSlashCommandAtCursor(base, cursor ?? base.length),
+    const next = stripFlashcardsTokenAnywhere(
+      stripQuizTokenAnywhere(
+        stripTrailingSlashCommandAtCursor(base, cursor ?? base.length),
+      ),
     )
-    setQuizMode(true)
+    setStudyMode(mode)
     setQuery(next)
     setSlashOpen(false)
     requestAnimationFrame(() => {
@@ -375,9 +393,9 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     })
   }
 
-  function removeQuizMode() {
-    setQuizMode(false)
-    const next = stripQuizTokenAnywhere(query)
+  function clearStudyMode() {
+    setStudyMode(null)
+    const next = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(query))
     setQuery(next)
     requestAnimationFrame(() => {
       textareaRef.current?.focus()
@@ -392,7 +410,11 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     cursor?: number,
   ) {
     if (cmd.command === QUIZ_COMMAND) {
-      activateQuizMode(value, cursor)
+      activateStudyMode('quiz', value, cursor)
+      return
+    }
+    if (cmd.command === FLASHCARDS_COMMAND) {
+      activateStudyMode('flashcards', value, cursor)
       return
     }
   }
@@ -464,7 +486,12 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     setTurns((prev) => [...prev, { role: 'user', text: q }])
 
     const normalizedQuestion = mentionInfo.normalizedQuestion || q
-    const wireQuestion = quizMode ? `${QUIZ_COMMAND} ${normalizedQuestion}` : normalizedQuestion
+    const wireQuestion =
+      studyMode === 'quiz'
+        ? `${QUIZ_COMMAND} ${normalizedQuestion}`
+        : studyMode === 'flashcards'
+        ? `${FLASHCARDS_COMMAND} ${normalizedQuestion}`
+        : normalizedQuestion
     const askQuery = buildAskQuery(wireQuestion, mentionInfo.fileNames)
     const fileIds = mentionInfo.fileIds.length ? mentionInfo.fileIds : undefined
 
@@ -571,7 +598,8 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       return
     }
     let quizMessageId = turn.id
-    if (!quizMessageId && turn.payload?.kind === 'quiz') {
+    const quizId = turn.payload?.kind === 'quiz' ? turn.payload.quizId : undefined
+    if (!quizMessageId && quizId) {
       try {
         const snapshot = await fetchCurrentWorkspaceConversation(workspaceId)
         const matched = [...snapshot.messages]
@@ -581,7 +609,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               m.role === 'assistant' &&
               !!m.payload &&
               m.payload.kind === 'quiz' &&
-              m.payload.quizId === turn.payload?.quizId,
+              m.payload.quizId === quizId,
           )
         quizMessageId = matched?.id
       } catch {
@@ -667,6 +695,8 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                 <>
                   {t.payload?.kind === 'quiz_result' ? (
                     <ChatQuizResultCard result={t.payload} />
+                  ) : t.payload?.kind === 'flashcards' ? (
+                    <ChatFlashcardsCard deck={t.payload} />
                   ) : (
                     <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
                   )}
@@ -784,24 +814,36 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         <div className="mb-2 flex items-center gap-2">
           <button
             type="button"
-            onClick={() => activateQuizMode()}
+            onClick={() => activateStudyMode('quiz')}
             className={[
               'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-              quizMode
+              isQuizMode
                 ? 'border-violet-300 bg-violet-100 text-violet-800'
                 : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100',
             ].join(' ')}
           >
-            {quizMode ? 'Quiz Mode On' : 'Quiz'}
+            {isQuizMode ? 'Quiz Mode On' : 'Quiz'}
           </button>
-          {quizMode ? (
+          <button
+            type="button"
+            onClick={() => activateStudyMode('flashcards')}
+            className={[
+              'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+              isFlashcardsMode
+                ? 'border-emerald-300 bg-emerald-100 text-emerald-800'
+                : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100',
+            ].join(' ')}
+          >
+            {isFlashcardsMode ? 'Flashcards Mode On' : 'Flashcards'}
+          </button>
+          {isStudyMode ? (
             <button
               type="button"
-              onClick={() => removeQuizMode()}
+              onClick={() => clearStudyMode()}
               className="rounded-full border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100"
-              title="Disable quiz mode"
+              title="Disable study mode"
             >
-              {QUIZ_COMMAND} ×
+              {isQuizMode ? QUIZ_COMMAND : FLASHCARDS_COMMAND} ×
             </button>
           ) : null}
         </div>
@@ -814,9 +856,12 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               const value = e.target.value
               const cursor = e.target.selectionStart
               const hasQuizToken = QUIZ_TOKEN_RE.test(value)
+              const hasFlashcardsToken = FLASHCARDS_TOKEN_RE.test(value)
               QUIZ_TOKEN_RE.lastIndex = 0
-              const cleaned = hasQuizToken ? stripQuizTokenAnywhere(value) : value
-              if (hasQuizToken) setQuizMode(true)
+              FLASHCARDS_TOKEN_RE.lastIndex = 0
+              const cleaned = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(value))
+              if (hasFlashcardsToken) setStudyMode('flashcards')
+              else if (hasQuizToken) setStudyMode('quiz')
               setQuery(cleaned)
               const nextCursor = Math.min(cursor, cleaned.length)
               syncMentionFromValue(cleaned, nextCursor)

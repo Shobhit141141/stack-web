@@ -50,7 +50,19 @@ export type QuizResultPayload = {
   insights: string
 }
 
-export type ChatPayload = QuizPayload | QuizSubmissionPayload | QuizResultPayload
+export type FlashcardsPayload = {
+  kind: 'flashcards'
+  deckId: string
+  title: string
+  prompt: string
+  cards: Array<{
+    cardId: string
+    front: string
+    back: string
+  }>
+}
+
+export type ChatPayload = QuizPayload | QuizSubmissionPayload | QuizResultPayload | FlashcardsPayload
 
 export type AskResponse = {
   answer: string

@@ -65,6 +65,20 @@ type QuizPayloadPublic = {
   questions: QuizQuestionPublic[];
 };
 
+type FlashcardPublic = {
+  cardId: string;
+  front: string;
+  back: string;
+};
+
+type FlashcardsPayload = {
+  kind: "flashcards";
+  deckId: string;
+  title: string;
+  prompt: string;
+  cards: FlashcardPublic[];
+};
+
 type QuizSubmissionPayload = {
   kind: "quiz_submission";
   quizId: string;
@@ -107,11 +121,28 @@ function safeUuidLikeFromNow(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function parseQuizPrompt(rawQuery: string): string | null {
+type StudyMode = "quiz" | "flashcards";
+
+function parseStudyPrompt(
+  rawQuery: string
+): { mode: StudyMode; prompt: string } | null {
   const q = rawQuery.trim();
-  if (!q.toLowerCase().startsWith("/quiz")) return null;
-  const rest = q.slice(5).trim();
-  return rest || "Create a general quiz from the provided context.";
+  const lower = q.toLowerCase();
+  if (lower.startsWith("/quiz")) {
+    const rest = q.slice(5).trim();
+    return {
+      mode: "quiz",
+      prompt: rest || "Create a general quiz from the provided context.",
+    };
+  }
+  if (lower.startsWith("/flashcards")) {
+    const rest = q.slice(11).trim();
+    return {
+      mode: "flashcards",
+      prompt: rest || "Create concise flashcards from the provided context.",
+    };
+  }
+  return null;
 }
 
 async function generateQuizFromContext(params: {
@@ -216,6 +247,55 @@ function toPublicQuizPayload(payload: QuizPayload): QuizPayloadPublic {
     title: payload.title,
     prompt: payload.prompt,
     questions: payload.questions,
+  };
+}
+
+async function generateFlashcardsFromContext(params: {
+  context: string;
+  prompt: string;
+}): Promise<FlashcardsPayload> {
+  const schemaInstruction =
+    'Return only valid JSON with this shape: {"title":string,"cards":[{"cardId":string,"front":string,"back":string}]}';
+  const userMessage = [
+    "Create concise study flashcards from the context.",
+    "Rules:",
+    `- max ${QUIZ_MAX_QUESTIONS} flashcards`,
+    "- each card must have front (question/cue) and back (answer/explanation)",
+    "- keep wording compact and clear",
+    "",
+    `User focus: ${params.prompt}`,
+    "",
+    "Context:",
+    params.context,
+    "",
+    schemaInstruction,
+  ].join("\n");
+  const gen = await ragCompletionService.generateRagCompletion({
+    systemInstruction:
+      "You are a study material generator. Output strict JSON only with no markdown.",
+    userMessage,
+    temperature: 0.2,
+  });
+  const parsed = JSON.parse(extractJsonObject(gen.text)) as unknown;
+  if (!isRecord(parsed) || typeof parsed.title !== "string" || !Array.isArray(parsed.cards)) {
+    throw new Error("Invalid flashcards JSON shape");
+  }
+  const cards = parsed.cards.slice(0, QUIZ_MAX_QUESTIONS).map((c, i) => {
+    if (!isRecord(c)) throw new Error("Invalid flashcard");
+    const front = typeof c.front === "string" ? c.front.trim() : "";
+    const back = typeof c.back === "string" ? c.back.trim() : "";
+    const cardId =
+      typeof c.cardId === "string" && c.cardId.trim() ? c.cardId.trim() : `c${i + 1}`;
+    if (!front || !back) throw new Error("Invalid flashcard fields");
+    return { cardId, front, back };
+  });
+  if (cards.length === 0) throw new Error("No flashcards generated");
+  return {
+    kind: "flashcards",
+    deckId: safeUuidLikeFromNow(),
+    title: parsed.title.trim() || "Flashcard Deck",
+    prompt: params.prompt,
+    cards,
   };
 }
 
@@ -466,7 +546,7 @@ export async function askUserFiles(params: {
 }): Promise<AskResult> {
   const t0 = performance.now();
   const rawQuery = params.query.trim();
-  const quizPrompt = parseQuizPrompt(rawQuery);
+  const studyPrompt = parseStudyPrompt(rawQuery);
 
   let scopedFileIds = 0;
   let restrictContentIds: string[] | undefined;
@@ -535,7 +615,7 @@ export async function askUserFiles(params: {
     }
   }
 
-  const metadataIntent = quizPrompt ? null : detectMetadataIntent(rawQuery);
+  const metadataIntent = studyPrompt ? null : detectMetadataIntent(rawQuery);
   if (metadataIntent) {
     let metadataFiles: fileRepository.FileSearchMetaRow[] = [];
     if (effectiveFileIds && effectiveFileIds.length > 0) {
@@ -785,10 +865,33 @@ export async function askUserFiles(params: {
     historyBlock = buildHistoryBlock(historyRows);
   }
 
-  if (quizPrompt) {
+  if (studyPrompt) {
+    if (studyPrompt.mode === "flashcards") {
+      const flashcardsPayload = await generateFlashcardsFromContext({
+        context,
+        prompt: studyPrompt.prompt,
+      });
+      const answer = `Flashcards ready: ${flashcardsPayload.title} (${flashcardsPayload.cards.length} cards).`;
+      if (conversationId) {
+        await conversationRepository.createMessage({
+          conversationId,
+          role: "user",
+          content: params.displayQuery || rawQuery,
+        });
+        await conversationRepository.createMessage({
+          conversationId,
+          role: "assistant",
+          content: answer,
+          payload: flashcardsPayload,
+        });
+        await conversationRepository.touchConversationUpdatedAt(conversationId);
+      }
+      return { answer, sources: [], payload: flashcardsPayload };
+    }
+
     const quizPayload = await generateQuizFromContext({
       context,
-      prompt: quizPrompt,
+      prompt: studyPrompt.prompt,
     });
     const quizPayloadPublic = toPublicQuizPayload(quizPayload);
     const answer = `Quiz ready: ${quizPayload.title} (${quizPayload.questions.length} questions). Select options and submit when ready.`;
