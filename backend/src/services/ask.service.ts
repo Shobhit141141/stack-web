@@ -543,6 +543,8 @@ export async function askUserFiles(params: {
   fileIds?: string[];
   workspaceId?: string;
   conversationId?: string;
+  /** e.g. voice webhook uses a smaller/faster completion model */
+  ragCompletionModel?: string;
 }): Promise<AskResult> {
   const t0 = performance.now();
   const rawQuery = params.query.trim();
@@ -921,7 +923,8 @@ export async function askUserFiles(params: {
 
   const tLlm = performance.now();
   let answer: string;
-  let genModel = ragCompletionModelDefault();
+  let genModel =
+    params.ragCompletionModel?.trim() || ragCompletionModelDefault();
   let genModelVersion: string | undefined;
   let tokensPrompt: number | undefined;
   let tokensCandidates: number | undefined;
@@ -931,6 +934,9 @@ export async function askUserFiles(params: {
       systemInstruction,
       userMessage,
       temperature: env.RAG_TEMPERATURE,
+      ...(params.ragCompletionModel?.trim()
+        ? { model: params.ragCompletionModel.trim() }
+        : {}),
     });
     answer = gen.text;
     genModel = gen.model;

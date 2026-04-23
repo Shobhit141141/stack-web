@@ -24,7 +24,9 @@ export function VoiceButton() {
     lastConnectError,
     clearLastConnectError,
     configured,
+    voiceOverlayOpen,
     toggle,
+    pause,
     stop,
     downloadReferredFile,
     copyReferredFile,
@@ -36,7 +38,7 @@ export function VoiceButton() {
   const isActive = status === 'active'
   const isConnecting = status === 'connecting'
   const isError = status === 'error'
-  const showOverlay = isActive || isConnecting
+  const showOverlay = voiceOverlayOpen
 
   const userText = (transcriptLive || transcript).trim()
   const assistantText = (
@@ -60,7 +62,8 @@ export function VoiceButton() {
             assistantStreaming={assistantStreaming}
             turns={turns}
             referredFiles={referredFiles}
-            onEnd={stop}
+            onClose={() => (isConnecting ? stop() : pause())}
+            onDisconnect={stop}
             onDownloadFile={downloadReferredFile}
             onCopyFileLink={copyReferredFile}
             onDeleteFile={deleteReferredFile}
@@ -93,7 +96,7 @@ export function VoiceButton() {
               clearLastConnectError()
               toggle()
             }}
-            disabled={isConnecting}
+            disabled={false}
             whileTap={{ scale: 0.92 }}
             className={`relative flex h-14 w-14 cursor-pointer items-center justify-center rounded-full shadow-lg transition-colors ${
               isActive

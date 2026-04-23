@@ -215,6 +215,16 @@ if (secret && req.headers["x-vapi-secret"] !== secret) {
 
 ---
 
+## Latency tuning
+
+| Layer | What to change |
+|--------|----------------|
+| **Vapi assistant** | In the Vapi dashboard, use a **faster transcriber, LLM, and voice** for the assistant that runs the call (separate from your backend RAG model). |
+| **RAG (this repo)** | Voice tool calls use **`OPENAI_CHAT_MODEL_VOICE`** / **`GEMINI_CHAT_MODEL_VOICE`** when set; they default to fast mini/flash-lite models so you can keep a heavier **`OPENAI_CHAT_MODEL`** for normal chat only. |
+| **Client** | The app **prefetches** `@vapi-ai/web` after idle. **Close** hides the overlay but **keeps the realtime session** warm; use **Disconnect fully** to end billing and release the mic. |
+
+---
+
 ## Cost Estimate
 
 | Component | Cost |

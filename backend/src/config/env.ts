@@ -86,8 +86,15 @@ export const env = {
   OPENAI_CHAT_MODEL:
     process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o-mini",
 
+  /** faster default for voice webhook; override with OPENAI_CHAT_MODEL_VOICE */
+  OPENAI_CHAT_MODEL_VOICE:
+    process.env.OPENAI_CHAT_MODEL_VOICE?.trim() || "gpt-4o-mini",
+
   GEMINI_CHAT_MODEL:
     process.env.GEMINI_CHAT_MODEL?.trim() || "gemini-2.5-flash-lite",
+
+  GEMINI_CHAT_MODEL_VOICE:
+    process.env.GEMINI_CHAT_MODEL_VOICE?.trim() || "gemini-2.5-flash-lite",
 
   RAG_VECTOR_CHUNK_LIMIT: Math.min(
     200,
@@ -160,6 +167,14 @@ export function ragCompletionModelDefault(): string {
     return env.GEMINI_CHAT_MODEL;
   }
   return env.OPENAI_CHAT_MODEL;
+}
+
+// completion model for vapi tool path (latency-sensitive; often smaller than chat UI model)
+export function ragCompletionModelForVoice(): string {
+  if (env.RAG_COMPLETION_PROVIDER === "google") {
+    return env.GEMINI_CHAT_MODEL_VOICE;
+  }
+  return env.OPENAI_CHAT_MODEL_VOICE;
 }
 
 export function hasRagCompletionConfigured(): boolean {

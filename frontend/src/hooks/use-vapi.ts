@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react'
 import toast from 'react-hot-toast'
-import VapiModule from '@vapi-ai/web'
-
-// CJS default export compat — Vite may or may not unwrap it
-const Vapi = ('default' in VapiModule ? (VapiModule as any).default : VapiModule) as typeof VapiModule
+import { loadVapiSdkClass } from '../lib/vapi-prefetch'
 import { getSupabase } from '../lib/supabase'
 import {
   processAssistantVoiceText,
@@ -111,6 +116,13 @@ function isTranscriptMessage(msg: { type?: string }): boolean {
   return t === 'transcript' || (typeof t === 'string' && t.startsWith('transcript'))
 }
 
+// opens system mic prompt early when allowed (no-op if api missing)
+async function primeMicrophonePermission(): Promise<void> {
+  if (!navigator.mediaDevices?.getUserMedia) return
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  for (const t of stream.getTracks()) t.stop()
+}
+
 export function useVapi(options?: { workspaceId?: string }) {
   const workspaceId = options?.workspaceId
   const [status, setStatus] = useState<VapiStatus>('idle')
@@ -124,8 +136,17 @@ export function useVapi(options?: { workspaceId?: string }) {
   const [connectStage, setConnectStage] = useState('')
   const [connectSlow, setConnectSlow] = useState(false)
   const [lastConnectError, setLastConnectError] = useState<string | null>(null)
+  const [voiceOverlayOpen, setVoiceOverlayOpen] = useState(false)
+  const voiceOverlayOpenRef = useRef(false)
 
-  const vapiRef = useRef<InstanceType<typeof Vapi> | null>(null)
+  const vapiRef = useRef<{
+    start: (...args: unknown[]) => Promise<void>
+    stop: () => Promise<void> | void
+    setMuted: (muted: boolean) => void
+    send: (message: unknown) => void
+    on: (event: string, handler: (...args: unknown[]) => void) => void
+  } | null>(null)
+  const vapiInitPromiseRef = useRef<Promise<unknown> | null>(null)
 
   const assistantTokenAccRef = useRef('')
   const sessionAliveRef = useRef(false)
@@ -135,8 +156,13 @@ export function useVapi(options?: { workspaceId?: string }) {
     slow?: ReturnType<typeof setTimeout>
     hard?: ReturnType<typeof setTimeout>
   }>({})
+  const establishPromiseRef = useRef<Promise<void> | null>(null)
 
   const configured = Boolean(VAPI_PUBLIC_KEY && VAPI_ASSISTANT_ID)
+
+  useEffect(() => {
+    voiceOverlayOpenRef.current = voiceOverlayOpen
+  }, [voiceOverlayOpen])
 
   const clearConnectTimers = useCallback(() => {
     const t = connectTimersRef.current
@@ -190,17 +216,160 @@ export function useVapi(options?: { workspaceId?: string }) {
     }
   }, [])
 
-  useEffect(() => {
-    if (!VAPI_PUBLIC_KEY) return
+  // full vapi.start + retries; deduped; used by background warm and by start()
+  const establishVapiSession = useCallback(async (opts?: { background?: boolean }) => {
+    const background = opts?.background === true
+    if (sessionAliveRef.current) return
+    if (establishPromiseRef.current) {
+      await establishPromiseRef.current
+      return
+    }
 
-    const vapi = new Vapi(VAPI_PUBLIC_KEY)
+    const vapi = vapiRef.current
+    if (!vapi || !VAPI_ASSISTANT_ID) return
 
-    vapi.on('call-start', () => {
+    const run = (async () => {
       clearConnectTimers()
       setConnectSlow(false)
       setConnectStage('')
       setLastConnectError(null)
-      setStatus('active')
+      if (!background) {
+        setStatus('connecting')
+        setTurns([])
+        setReferredFiles([])
+
+        connectTimersRef.current.slow = setTimeout(
+          () => setConnectSlow(true),
+          VAPI_CONNECT_SLOW_HINT_MS,
+        )
+        connectTimersRef.current.hard = setTimeout(() => {
+          clearConnectTimers()
+          setConnectSlow(false)
+          setConnectStage('')
+          void vapi.stop()
+          setStatus('idle')
+          setLastConnectError('Connection timed out. Tap the mic to try again.')
+        }, VAPI_CONNECT_TIMEOUT_MS)
+      }
+
+      let userId: string | undefined
+      let accessToken: string | undefined
+      const supabase = getSupabase()
+      if (supabase) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        userId = session?.user?.id
+        accessToken = session?.access_token
+      }
+
+      const runStart = async () =>
+        vapi.start(
+          VAPI_ASSISTANT_ID,
+          {
+            metadata: {
+              ...(userId ? { userId } : {}),
+              ...(workspaceId ? { workspaceId } : {}),
+              ...(accessToken ? { accessToken } : {}),
+            },
+          },
+          undefined,
+          undefined,
+          undefined,
+          { ...VAPI_WEB_CALL_START_OPTIONS },
+        )
+
+      try {
+        await runStart()
+      } catch {
+        try {
+          await vapi.stop()
+        } catch {
+          // ignore
+        }
+        await new Promise((r) => setTimeout(r, 700))
+        try {
+          await runStart()
+        } catch {
+          if (!background) {
+            clearConnectTimers()
+            setConnectSlow(false)
+            setConnectStage('')
+            setStatus('error')
+            setLastConnectError(
+              'Could not start voice. Check mic permission and network, then try again.',
+            )
+            setTimeout(() => setStatus('idle'), 4000)
+          }
+        }
+      }
+    })()
+
+    establishPromiseRef.current = run
+    try {
+      await run
+    } finally {
+      establishPromiseRef.current = null
+    }
+  }, [workspaceId, clearConnectTimers])
+
+  // mic prompt + join daily room in background so first tap is mostly unmute + ui
+  useEffect(() => {
+    if (!configured) return
+    let cancelled = false
+
+    void primeMicrophonePermission().catch(() => {
+      if (!cancelled) {
+        toast.error(
+          'Voice needs microphone access. Allow the prompt or enable the mic for this site in browser settings.',
+        )
+      }
+    })
+
+    void (async () => {
+      try {
+        await vapiInitPromiseRef.current
+      } catch {
+        return
+      }
+      if (cancelled) return
+      try {
+        await establishVapiSession({ background: true })
+      } catch (e) {
+        console.error('[voice] background session failed', e)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [configured, workspaceId, establishVapiSession])
+
+  useLayoutEffect(() => {
+    if (!VAPI_PUBLIC_KEY) return
+    let cancelled = false
+    let instanceWeOwn: (typeof vapiRef)['current'] = null
+
+    const init = (async () => {
+      const VapiCtor = await loadVapiSdkClass()
+      if (cancelled) return
+      const vapi = new VapiCtor(VAPI_PUBLIC_KEY)
+
+      vapi.on('call-start', () => {
+      clearConnectTimers()
+      setConnectSlow(false)
+      setConnectStage('')
+      setLastConnectError(null)
+      if (!voiceOverlayOpenRef.current) {
+        try {
+          vapi.setMuted(true)
+        } catch {
+          // ignore
+        }
+        setStatus('idle')
+      } else {
+        setStatus('active')
+      }
       setTranscript('')
       setAssistantMessage('')
       setTranscriptLive('')
@@ -212,15 +381,15 @@ export function useVapi(options?: { workspaceId?: string }) {
       sessionAliveRef.current = true
       setReferredFiles([])
       sendStackFileToolSessionHint(vapi)
-    })
+      })
 
-    vapi.on('call-start-progress', (e: { stage?: string; status?: string }) => {
+      vapi.on('call-start-progress', (e: { stage?: string; status?: string }) => {
       if (e?.status === 'started' && typeof e.stage === 'string') {
         setConnectStage(formatVapiConnectStage(e.stage))
       }
-    })
+      })
 
-    vapi.on('call-end', () => {
+      vapi.on('call-end', () => {
       clearConnectTimers()
       setConnectSlow(false)
       setConnectStage('')
@@ -228,17 +397,19 @@ export function useVapi(options?: { workspaceId?: string }) {
       assistantTokenAccRef.current = ''
       setAssistantTokenLive('')
       sessionAliveRef.current = false
-    })
+      setVoiceOverlayOpen(false)
+      })
 
-    vapi.on('error', () => {
+      vapi.on('error', () => {
       clearConnectTimers()
       setConnectSlow(false)
       setConnectStage('')
       setStatus('error')
       setTimeout(() => setStatus('idle'), 3000)
-    })
+      })
 
-    vapi.on('message', (msg: any) => {
+      vapi.on('message', (msg: any) => {
+      if (!voiceOverlayOpenRef.current) return
       console.log('[voice] raw vapi message', msg)
 
       const runMetaClientAction = (meta: StackVoiceMeta | null) => {
@@ -389,95 +560,69 @@ export function useVapi(options?: { workspaceId?: string }) {
           }
         }
       }
-    })
+      })
 
-    vapiRef.current = vapi
+      if (cancelled) {
+        try {
+          void vapi.stop()
+        } catch {
+          // ignore
+        }
+        return
+      }
+      instanceWeOwn = vapi
+      vapiRef.current = vapi
+    })()
+
+    vapiInitPromiseRef.current = init
 
     return () => {
+      cancelled = true
       clearConnectTimers()
-      vapi.stop()
-      vapiRef.current = null
+      void init.finally(() => {
+        const owned = instanceWeOwn
+        if (owned && vapiRef.current === owned) {
+          try {
+            void owned.stop()
+          } catch {
+            // ignore
+          }
+          vapiRef.current = null
+        }
+      })
     }
   }, [VAPI_PUBLIC_KEY, clearConnectTimers, downloadReferredFile])
 
   const start = useCallback(async () => {
+    try {
+      await vapiInitPromiseRef.current
+    } catch (e) {
+      console.error('[voice] sdk init failed', e)
+      setLastConnectError('Voice failed to load. Check your network and refresh.')
+      setStatus('error')
+      setTimeout(() => setStatus('idle'), 4000)
+      return
+    }
     const vapi = vapiRef.current
-    if (!vapi || !VAPI_ASSISTANT_ID) return
+    if (!VAPI_ASSISTANT_ID) return
+    if (!vapi) {
+      console.warn('[voice] vapiRef empty after init — possible StrictMode race; retry')
+      toast.error('Voice is still starting. Tap again in a moment.')
+      return
+    }
 
-    // if session is still alive, just resume (unmute + show overlay)
     if (sessionAliveRef.current) {
-      try { vapi.setMuted(false) } catch { /* ignore */ }
+      try {
+        vapi.setMuted(false)
+      } catch {
+        /* ignore */
+      }
       setStatus('active')
       return
     }
 
-    clearConnectTimers()
-    setConnectSlow(false)
-    setConnectStage('')
-    setLastConnectError(null)
-    setStatus('connecting')
-    setTurns([])
-    setReferredFiles([])
-
-    connectTimersRef.current.slow = setTimeout(
-      () => setConnectSlow(true),
-      VAPI_CONNECT_SLOW_HINT_MS,
-    )
-    connectTimersRef.current.hard = setTimeout(() => {
-      clearConnectTimers()
-      setConnectSlow(false)
-      setConnectStage('')
-      void vapi.stop()
-      setStatus('idle')
-      setLastConnectError('Connection timed out. Tap the mic to try again.')
-    }, VAPI_CONNECT_TIMEOUT_MS)
-
-    let userId: string | undefined
-    let accessToken: string | undefined
-    const supabase = getSupabase()
-    if (supabase) {
-      const { data: { session } } = await supabase.auth.getSession()
-      userId = session?.user?.id
-      accessToken = session?.access_token
-    }
-
-    const runStart = async () =>
-      vapi.start(
-        VAPI_ASSISTANT_ID,
-        {
-          metadata: {
-            ...(userId ? { userId } : {}),
-            ...(workspaceId ? { workspaceId } : {}),
-            ...(accessToken ? { accessToken } : {}),
-          },
-        },
-        undefined,
-        undefined,
-        undefined,
-        { ...VAPI_WEB_CALL_START_OPTIONS },
-      )
-
-    try {
-      await runStart()
-    } catch {
-      try {
-        await vapi.stop()
-      } catch {
-        // ignore
-      }
-      await new Promise((r) => setTimeout(r, 700))
-      try {
-        await runStart()
-      } catch {
-        clearConnectTimers()
-        setConnectSlow(false)
-        setConnectStage('')
-        setStatus('error')
-        setLastConnectError('Could not start voice. Check mic permission and network, then try again.')
-        setTimeout(() => setStatus('idle'), 4000)
-      }
-    }
-  }, [workspaceId, clearConnectTimers])
+    await establishVapiSession({ background: false })
+  }, [establishVapiSession])
 
   // pause: mute mic + hide overlay but keep the Daily room alive
   const pause = useCallback(() => {
@@ -486,11 +631,16 @@ export function useVapi(options?: { workspaceId?: string }) {
     setConnectStage('')
     const vapi = vapiRef.current
     if (vapi && sessionAliveRef.current) {
-      try { vapi.setMuted(true) } catch { /* ignore */ }
+      try {
+        vapi.setMuted(true)
+      } catch {
+        /* ignore */
+      }
     }
     assistantTokenAccRef.current = ''
     setAssistantTokenLive('')
     setStatus('idle')
+    setVoiceOverlayOpen(false)
   }, [clearConnectTimers])
 
   // hard stop: tear down the session completely
@@ -498,21 +648,23 @@ export function useVapi(options?: { workspaceId?: string }) {
     clearConnectTimers()
     setConnectSlow(false)
     setConnectStage('')
-    vapiRef.current?.stop()
+    void vapiRef.current?.stop()
     sessionAliveRef.current = false
     assistantTokenAccRef.current = ''
     setAssistantTokenLive('')
     setReferredFiles([])
     setStatus('idle')
+    setVoiceOverlayOpen(false)
   }, [clearConnectTimers])
 
   const toggle = useCallback(() => {
-    if (status === 'active') {
+    if (voiceOverlayOpen && status === 'active') {
       pause()
-    } else if (status === 'idle' || status === 'error') {
-      void start()
+      return
     }
-  }, [status, start, pause])
+    setVoiceOverlayOpen(true)
+    void start()
+  }, [voiceOverlayOpen, status, start, pause])
 
   return {
     status,
@@ -528,6 +680,8 @@ export function useVapi(options?: { workspaceId?: string }) {
     lastConnectError,
     clearLastConnectError,
     configured,
+    voiceOverlayOpen,
+    setVoiceOverlayOpen,
     start,
     pause,
     stop,

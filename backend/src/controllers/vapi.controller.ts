@@ -4,6 +4,7 @@ import { handleStackFileAction } from "../services/vapi-file-action.service.js";
 import {
   hasEmbeddingApiKey,
   hasRagCompletionConfigured,
+  ragCompletionModelForVoice,
 } from "../config/env.js";
 import { log } from "../utils/logger/index.js";
 import { appendStackMetaIfNeeded } from "../utils/vapi-stack-meta.js";
@@ -352,6 +353,7 @@ export async function vapiWebhook(
           const ragResult = await askService.askUserFiles({
             userId,
             query,
+            ragCompletionModel: ragCompletionModelForVoice(),
             ...(workspaceId ? { workspaceId } : {}),
           });
 
@@ -456,6 +458,7 @@ export async function vapiWebhook(
       const result = await askService.askUserFiles({
         userId,
         query,
+        ragCompletionModel: ragCompletionModelForVoice(),
         ...(workspaceId ? { workspaceId } : {}),
       });
 

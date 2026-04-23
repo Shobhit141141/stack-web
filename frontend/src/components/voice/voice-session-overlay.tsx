@@ -16,7 +16,10 @@ type Props = {
   assistantStreaming: boolean
   turns: VoiceTurn[]
   referredFiles: VoiceReferredFile[]
-  onEnd: () => void
+  /** hide overlay but keep realtime session warm */
+  onClose: () => void
+  /** tear down vapi/daily session completely */
+  onDisconnect: () => void
   onDownloadFile: (fileId: string) => void
   onCopyFileLink: (fileId: string) => void
   onDeleteFile: (fileId: string, fileName: string) => void
@@ -56,7 +59,8 @@ export function VoiceSessionOverlay({
   assistantStreaming,
   turns,
   referredFiles,
-  onEnd,
+  onClose,
+  onDisconnect,
   onDownloadFile,
   onCopyFileLink,
   onDeleteFile,
@@ -280,14 +284,25 @@ export function VoiceSessionOverlay({
           ) : null}
         </div>
 
-        <button
-          type="button"
-          onClick={onEnd}
-          className="flex items-center gap-2 rounded-full border border-white/25 bg-white/95 px-6 py-3 text-sm font-semibold text-neutral-900 shadow-lg transition hover:bg-white"
-        >
-          <HiOutlineXMark className="size-4" aria-hidden />
-          {isConnecting ? 'Cancel' : 'End voice'}
-        </button>
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-2 rounded-full border border-white/25 bg-white/95 px-6 py-3 text-sm font-semibold text-neutral-900 shadow-lg transition hover:bg-white"
+          >
+            <HiOutlineXMark className="size-4" aria-hidden />
+            {isConnecting ? 'Cancel' : 'Close'}
+          </button>
+          {!isConnecting ? (
+            <button
+              type="button"
+              onClick={onDisconnect}
+              className="text-xs font-medium text-white/55 underline-offset-2 hover:text-white/80 hover:underline"
+            >
+              Disconnect fully
+            </button>
+          ) : null}
+        </div>
       </div>
     </motion.div>
   )

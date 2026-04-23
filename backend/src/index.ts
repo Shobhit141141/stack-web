@@ -17,7 +17,7 @@ async function startServer() {
   await assertQdrantForStartup();
   app.listen(port, () => {
     log.info(
-      `Model config · embedding=${embeddingRuntimeLabel()} rag=${env.RAG_COMPLETION_PROVIDER}:${ragCompletionModelDefault()}`,
+      `Model config · embedding=${embeddingRuntimeLabel()} rag=${env.RAG_COMPLETION_PROVIDER}:${ragCompletionModelDefault()} voice=${env.OPENAI_CHAT_MODEL_VOICE}`,
     );
     log.info(`Listening on http://localhost:${port}`);
   });
