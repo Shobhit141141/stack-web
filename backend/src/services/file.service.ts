@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
+import { openaiGenerateSpeech } from "../client/openai.client.js";
 import {
   USER_FILE_QUOTA_MAX_BYTES_PER_FILE,
   USER_FILE_QUOTA_MAX_FILES,
@@ -30,6 +31,28 @@ import { prisma } from "../repositories/db.js";
 
 const RECENTS_LIMIT = 15;
 const USER_FILE_QUOTA_PG_LOCK_NS = 582_019_411;
+const SUMMARY_SPEECH_TTS_MODEL = "gpt-4o-mini-tts";
+const SUMMARY_SPEECH_TTS_VOICE = "alloy";
+
+// true when db says stored mp3 matches current summary row
+function isSummarySpeechCacheFresh(params: {
+  summaryUpdatedAt: Date | null;
+  speechGeneratedAt: Date | null;
+}): boolean {
+  const { summaryUpdatedAt, speechGeneratedAt } = params;
+  if (!summaryUpdatedAt || !speechGeneratedAt) return false;
+  return speechGeneratedAt.getTime() >= summaryUpdatedAt.getTime();
+}
+
+async function fetchAudioBytesFromSignedUrl(url: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
 
 function isImageMime(type: string): boolean {
   return type.toLowerCase().startsWith("image/");
@@ -672,6 +695,84 @@ export async function getUserFileWithSignedUrl(params: {
     createdAt: row.createdAt.toISOString(),
     signedUrl,
   };
+}
+
+// serves cached summary speech from storage when fresh; otherwise tts, upload, and record timestamp
+export async function getUserFileSummarySpeech(params: {
+  accessToken: string;
+  userId: string;
+  fileId: string;
+}): Promise<{ audioBytes: Buffer; mimeType: string; fileName: string }> {
+  const row = await fileRepository.findFileByIdForUser(params.fileId, params.userId);
+  if (!row) {
+    throw new HttpError(404, "File not found");
+  }
+  if (row.contentRef.summaryStatus !== "ready") {
+    throw new HttpError(409, "Summary is not ready yet");
+  }
+  const summary = row.contentRef.summary?.trim();
+  if (!summary) {
+    throw new HttpError(404, "Summary unavailable");
+  }
+
+  const storagePath = storageService.buildSummarySpeechStoragePath(
+    params.userId,
+    row.id
+  );
+
+  if (
+    isSummarySpeechCacheFresh({
+      summaryUpdatedAt: row.contentRef.summaryUpdatedAt ?? null,
+      speechGeneratedAt: row.contentRef.summarySpeechGeneratedAt ?? null,
+    })
+  ) {
+    let signedUrl: string;
+    try {
+      signedUrl = await storageService.createSignedReadUrl({
+        accessToken: params.accessToken,
+        storagePath,
+        expiresIn: env.SIGNED_URL_EXPIRES_SECONDS,
+      });
+    } catch {
+      throw new HttpError(502, "Could not read summary speech");
+    }
+    const cached = await fetchAudioBytesFromSignedUrl(signedUrl);
+    if (cached) {
+      return {
+        audioBytes: cached,
+        mimeType: "audio/mpeg",
+        fileName: row.originalName,
+      };
+    }
+  }
+
+  try {
+    const speech = await openaiGenerateSpeech({
+      model: SUMMARY_SPEECH_TTS_MODEL,
+      voice: SUMMARY_SPEECH_TTS_VOICE,
+      input: summary,
+      format: "mp3",
+    });
+    await storageService.uploadToFilesBucket({
+      accessToken: params.accessToken,
+      storagePath,
+      body: speech.audioBytes,
+      contentType: speech.mimeType,
+      upsert: true,
+    });
+    const generatedAt = new Date();
+    await fileRepository.setContentSummarySpeechGeneratedAt({
+      contentId: row.contentId,
+      generatedAt,
+    });
+    return {
+      audioBytes: speech.audioBytes,
+      mimeType: speech.mimeType,
+      fileName: row.originalName,
+    };
+  } catch {
+    throw new HttpError(502, "Could not generate summary speech");
+  }
 }
 
 export async function getUserFileWithThumbnailUrl(params: {

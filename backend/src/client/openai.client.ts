@@ -113,3 +113,21 @@ export async function openaiDescribeImage(params: {
     },
   };
 }
+
+export async function openaiGenerateSpeech(params: {
+  model: string;
+  voice: "alloy" | "ash" | "ballad" | "coral" | "echo" | "fable" | "nova" | "onyx" | "sage" | "shimmer";
+  input: string;
+  format: "mp3" | "wav";
+}): Promise<{ audioBytes: Buffer; mimeType: string }> {
+  const openai = getOpenAIClient();
+  const response = await openai.audio.speech.create({
+    model: params.model,
+    voice: params.voice,
+    input: params.input,
+    response_format: params.format,
+  });
+  const audioBytes = Buffer.from(await response.arrayBuffer());
+  const mimeType = params.format === "wav" ? "audio/wav" : "audio/mpeg";
+  return { audioBytes, mimeType };
+}

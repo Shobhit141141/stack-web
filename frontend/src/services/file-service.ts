@@ -69,6 +69,12 @@ export async function downloadFileBlob(fileId: string): Promise<{ blob: Blob; fi
   return { blob, fileName }
 }
 
+export async function fetchFileSummarySpeechAudio(fileId: string): Promise<{ blob: Blob; url: string }> {
+  const res = await apiFetchOkAuthed(`/files/${fileId}/summary/speech`)
+  const blob = await res.blob()
+  return { blob, url: URL.createObjectURL(blob) }
+}
+
 export async function renameFile(
   fileId: string,
   name: string,

@@ -12,18 +12,28 @@ export function buildStorageObjectPath(
   return `${userId}/${Date.now()}-${trimmed}`;
 }
 
+// stable path per file for cached summary tts (upsert on regeneration)
+export function buildSummarySpeechStoragePath(
+  userId: string,
+  fileId: string
+): string {
+  return `${userId}/file-${fileId}/summary-speech.mp3`;
+}
+
 export async function uploadToFilesBucket(params: {
   accessToken: string;
   storagePath: string;
   body: Buffer;
   contentType: string;
+  /** replace existing object (e.g. new summary speech for same file) */
+  upsert?: boolean;
 }): Promise<void> {
   const supabase = getSupabaseClientForAccessToken(params.accessToken);
   const { error } = await supabase.storage
     .from(env.SUPABASE_STORAGE_BUCKET)
     .upload(params.storagePath, params.body, {
       contentType: params.contentType,
-      upsert: false,
+      upsert: params.upsert ?? false,
     });
   if (error) throw new Error(error.message);
 }

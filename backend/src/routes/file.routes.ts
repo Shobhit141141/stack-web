@@ -22,6 +22,7 @@ router.get(
 router.get("/", requireAuth, fileController.listFiles);
 router.patch("/:id", requireAuth, fileController.patchFile);
 router.delete("/:id", requireAuth, fileController.deleteFile);
+router.get("/:id/summary/speech", requireAuth, fileController.getFileSummarySpeechById);
 router.get("/:id/download", requireAuth, fileController.downloadFileByIdAttachment);
 router.get("/:id/thumbnail", requireAuth, fileController.getFileThumbnailById);
 router.get("/:id", requireAuth, fileController.getFileById);

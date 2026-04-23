@@ -45,6 +45,8 @@ model Content {
   summary        String?
   summaryStatus  ContentSummaryStatus @default(pending) @map("summary_status")
   summaryUpdatedAt DateTime?          @map("summary_updated_at")
+  /** last time summary speech mp3 was stored; stale when summary_updated_at is newer */
+  summarySpeechGeneratedAt DateTime? @map("summary_speech_generated_at")
   createdAt      DateTime             @default(now()) @map("created_at")
 
   files  File[]

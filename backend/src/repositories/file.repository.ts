@@ -99,6 +99,7 @@ export async function markContentSummaryPending(
       summaryStatus: "pending",
       summary: null,
       summaryUpdatedAt: new Date(),
+      summarySpeechGeneratedAt: null,
     },
     select: { id: true },
   });
@@ -114,6 +115,7 @@ export async function markContentSummaryReady(params: {
       summaryStatus: "ready",
       summary: params.summary,
       summaryUpdatedAt: new Date(),
+      summarySpeechGeneratedAt: null,
     },
     select: { id: true },
   });
@@ -127,7 +129,20 @@ export async function markContentSummaryFailed(
     data: {
       summaryStatus: "failed",
       summaryUpdatedAt: new Date(),
+      summarySpeechGeneratedAt: null,
     },
+    select: { id: true },
+  });
+}
+
+// marks stored summary speech as matching current summary text (after upload)
+export async function setContentSummarySpeechGeneratedAt(params: {
+  contentId: string;
+  generatedAt: Date;
+}): Promise<void> {
+  await prisma.content.update({
+    where: { id: params.contentId },
+    data: { summarySpeechGeneratedAt: params.generatedAt },
     select: { id: true },
   });
 }
@@ -168,6 +183,8 @@ export async function findFileByIdForUser(id: string, userId: string) {
         select: {
           summary: true,
           summaryStatus: true,
+          summaryUpdatedAt: true,
+          summarySpeechGeneratedAt: true,
         },
       },
     } satisfies Prisma.FileSelect,

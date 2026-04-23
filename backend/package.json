@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "prisma generate",
     "dev": "tsx watch src/index.ts",
     "dev:url-worker": "tsx watch src/workers/url-worker.ts",
     "start": "tsx src/index.ts",

@@ -1,8 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
-import { HiOutlineDocumentDuplicate } from 'react-icons/hi2'
-import { ChatAnswerContent, ChatSourceFileChips } from './chat-answer-content'
+import { HiOutlineDocumentDuplicate, HiOutlineMicrophone } from 'react-icons/hi2'
+import {
+  ChatAnswerContent,
+  ChatSourceFileChips,
+  ChatSummaryAudioPlayer,
+} from './chat-answer-content'
 import { ChatQuizCard } from './chat-quiz-card'
 import { ChatQuizResultCard } from './chat-quiz-result-card'
 import { ChatFlashcardsCard } from './chat-flashcards-card'
@@ -65,7 +69,65 @@ const SLASH_COMMANDS: SlashCommand[] = [
     description: 'Generate flashcards from tagged or workspace files',
   },
 ]
-type StudyMode = 'quiz' | 'flashcards' | null
+
+type InteractionMode = 'quiz' | 'flashcards' | 'voice' | null
+
+// narrow surface for browser speech APIs (constructors vary by prefix)
+type BrowserSpeechRecognition = {
+  lang: string
+  interimResults: boolean
+  continuous: boolean
+  start: () => void
+  stop: () => void
+  onstart: (() => void) | null
+  onend: (() => void) | null
+  onerror: (() => void) | null
+  onresult: ((ev: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null
+}
+
+function getSpeechRecognitionCtor(): (new () => BrowserSpeechRecognition) | null {
+  if (typeof window === 'undefined') return null
+  const w = window as unknown as {
+    SpeechRecognition?: new () => BrowserSpeechRecognition
+    webkitSpeechRecognition?: new () => BrowserSpeechRecognition
+  }
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
+}
+
+// reads plain text aloud; optional onEnd after utterance finishes
+function speakPlainText(text: string, onEnd?: () => void): void {
+  if (typeof window === 'undefined' || !window.speechSynthesis) {
+    onEnd?.()
+    return
+  }
+  const Utterance = (window as unknown as { SpeechUtterance?: new (s: string) => { rate: number; onend: (() => void) | null; onerror: (() => void) | null } }).SpeechUtterance
+  if (!Utterance) {
+    onEnd?.()
+    return
+  }
+  window.speechSynthesis.cancel()
+  const u = new Utterance(text)
+  u.rate = 1
+  if (onEnd) {
+    u.onend = onEnd
+    u.onerror = onEnd
+  }
+  window.speechSynthesis.speak(u as unknown as SpeechSynthesisUtterance)
+}
+
+function stopSpeechOutput(): void {
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    window.speechSynthesis.cancel()
+  }
+}
+
+// strips file chips and caps length for TTS
+function textForSpeechOutput(text: string): string {
+  let t = text.replace(/\s*\[File:\s*[^\]]+\]\s*/gi, ' ')
+  t = t.replace(/\s+/g, ' ').trim()
+  if (t.length > 8000) t = `${t.slice(0, 7997)}...`
+  return t
+}
 
 // matches @filename.pdf or @{filename with spaces.pdf} — dots allowed in bare mentions
 const MENTION_TOKEN_RE = /(@\{[^}]+\}|@[\w][\w.\-]*)/g
@@ -230,10 +292,12 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   const [slashOpen, setSlashOpen] = useState(false)
   const [slashFilter, setSlashFilter] = useState('')
   const [slashHighlight, setSlashHighlight] = useState(0)
-  const [studyMode, setStudyMode] = useState<StudyMode>(null)
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(null)
+  const [voiceListening, setVoiceListening] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -287,6 +351,18 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     }
   }, [workspaceId])
 
+  useEffect(() => {
+    return () => {
+      stopSpeechOutput()
+      try {
+        speechRecognitionRef.current?.stop()
+      } catch {
+        // ignore
+      }
+      speechRecognitionRef.current = null
+    }
+  }, [])
+
   const showAssistantTyping =
     sending &&
     !hydrating &&
@@ -305,9 +381,10 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       f ? cmd.command.slice(1).toLowerCase().startsWith(f) : true,
     )
   }, [slashFilter])
-  const isQuizMode = studyMode === 'quiz'
-  const isFlashcardsMode = studyMode === 'flashcards'
-  const isStudyMode = studyMode !== null
+  const isQuizMode = interactionMode === 'quiz'
+  const isFlashcardsMode = interactionMode === 'flashcards'
+  const isVoiceMode = interactionMode === 'voice'
+  const hasInteractionMode = interactionMode !== null
   const quizResultById = useMemo(() => {
     const map = new Map<string, QuizResultPayload>()
     for (const t of turns) {
@@ -376,14 +453,21 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     syncMentionFromValue(ta.value, ta.selectionStart)
   }
 
-  function activateStudyMode(mode: Exclude<StudyMode, null>, value?: string, cursor?: number) {
+  function activateStudyMode(mode: 'quiz' | 'flashcards', value?: string, cursor?: number) {
+    stopSpeechOutput()
+    try {
+      speechRecognitionRef.current?.stop()
+    } catch {
+      // ignore
+    }
+    setVoiceListening(false)
     const base = value ?? query
     const next = stripFlashcardsTokenAnywhere(
       stripQuizTokenAnywhere(
         stripTrailingSlashCommandAtCursor(base, cursor ?? base.length),
       ),
     )
-    setStudyMode(mode)
+    setInteractionMode(mode)
     setQuery(next)
     setSlashOpen(false)
     requestAnimationFrame(() => {
@@ -393,8 +477,34 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     })
   }
 
-  function clearStudyMode() {
-    setStudyMode(null)
+  function activateVoiceMode() {
+    stopSpeechOutput()
+    try {
+      speechRecognitionRef.current?.stop()
+    } catch {
+      // ignore
+    }
+    setVoiceListening(false)
+    const next = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(query))
+    setInteractionMode('voice')
+    setQuery(next)
+    setSlashOpen(false)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      const pos = next.length
+      textareaRef.current?.setSelectionRange(pos, pos)
+    })
+  }
+
+  function clearInteractionMode() {
+    stopSpeechOutput()
+    try {
+      speechRecognitionRef.current?.stop()
+    } catch {
+      // ignore
+    }
+    setVoiceListening(false)
+    setInteractionMode(null)
     const next = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(query))
     setQuery(next)
     requestAnimationFrame(() => {
@@ -416,6 +526,56 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     if (cmd.command === FLASHCARDS_COMMAND) {
       activateStudyMode('flashcards', value, cursor)
       return
+    }
+  }
+
+  function startVoicePromptCapture() {
+    const Ctor = getSpeechRecognitionCtor()
+    if (!Ctor) {
+      toast.error('Voice input is not supported in this browser.')
+      return
+    }
+    if (!conversationId) {
+      toast.error('Conversation is not ready yet. Please try again in a moment.')
+      return
+    }
+    if (sending || hydrating) return
+    try {
+      speechRecognitionRef.current?.stop()
+    } catch {
+      // ignore
+    }
+    const rec = new Ctor()
+    speechRecognitionRef.current = rec
+    rec.lang = (navigator.language || 'en-US').trim() || 'en-US'
+    rec.interimResults = false
+    rec.continuous = false
+    rec.onstart = () => setVoiceListening(true)
+    rec.onend = () => {
+      setVoiceListening(false)
+      speechRecognitionRef.current = null
+    }
+    rec.onerror = () => {
+      setVoiceListening(false)
+      toast.error('Could not capture speech. Check the microphone permission.')
+    }
+    rec.onresult = (ev: { results: ArrayLike<{ 0: { transcript: string } }> }) => {
+      const last = ev.results.length - 1
+      const spoken = ev.results[last]?.[0]?.transcript?.trim() ?? ''
+      if (!spoken) {
+        toast.error('No speech detected. Try again.')
+        return
+      }
+      const preview = spoken.length > 120 ? `${spoken.slice(0, 117)}…` : spoken
+      speakPlainText(`Got it. You said: ${preview}.`, () => {
+        void submitUserMessage(spoken)
+      })
+    }
+    try {
+      rec.start()
+    } catch {
+      setVoiceListening(false)
+      toast.error('Could not start voice input.')
     }
   }
 
@@ -469,9 +629,8 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    const q = query.trim()
+  async function submitUserMessage(rawDisplayQuery: string) {
+    const q = rawDisplayQuery.trim()
     if (!q || sending || hydrating) return
     if (!conversationId) {
       toast.error('Conversation is not ready yet. Please try again in a moment.')
@@ -480,18 +639,17 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
 
     const mentionInfo = parseMentionedFiles(q, workspaceFiles)
     setSending(true)
-    setQuery('')
     setMentionOpen(false)
     setSlashOpen(false)
     setTurns((prev) => [...prev, { role: 'user', text: q }])
 
     const normalizedQuestion = mentionInfo.normalizedQuestion || q
     const wireQuestion =
-      studyMode === 'quiz'
+      interactionMode === 'quiz'
         ? `${QUIZ_COMMAND} ${normalizedQuestion}`
-        : studyMode === 'flashcards'
-        ? `${FLASHCARDS_COMMAND} ${normalizedQuestion}`
-        : normalizedQuestion
+        : interactionMode === 'flashcards'
+          ? `${FLASHCARDS_COMMAND} ${normalizedQuestion}`
+          : normalizedQuestion
     const askQuery = buildAskQuery(wireQuestion, mentionInfo.fileNames)
     const fileIds = mentionInfo.fileIds.length ? mentionInfo.fileIds : undefined
 
@@ -512,6 +670,10 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           ...(res.payload ? { payload: res.payload } : {}),
         },
       ])
+      if (interactionMode === 'voice') {
+        const out = textForSpeechOutput(res.answer)
+        if (out) speakPlainText(out)
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Request failed'
       toast.error(msg)
@@ -519,9 +681,24 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         ...prev,
         { role: 'assistant', text: 'Something went wrong. Try again.' },
       ])
+      if (interactionMode === 'voice') {
+        speakPlainText('Something went wrong. Try again.')
+      }
     } finally {
       setSending(false)
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const q = query.trim()
+    if (!q || sending || hydrating) return
+    if (!conversationId) {
+      toast.error('Conversation is not ready yet. Please try again in a moment.')
+      return
+    }
+    setQuery('')
+    await submitUserMessage(q)
   }
 
   function handleTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -671,7 +848,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           turns.map((t, i) => (
             <div
               key={i}
-              className={`max-w-[min(100%,42rem)] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+              className={`max-w-[min(100%,42rem)] rounded-xl px-3 py-2 text-left text-sm leading-relaxed ${
                 t.role === 'user'
                   ? 'ml-auto bg-neutral-900 text-white'
                   : 'mr-auto border border-neutral-200 bg-neutral-50 text-neutral-900'
@@ -700,6 +877,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                   ) : (
                     <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
                   )}
+                  <ChatSummaryAudioPlayer sources={t.sources ?? []} />
                   {t.payload && t.payload.kind === 'quiz' ? (
                     <ChatQuizCard
                       quiz={t.payload}
@@ -811,7 +989,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           ) : null
         })()}
 
-        <div className="mb-2 flex items-center gap-2">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => activateStudyMode('quiz')}
@@ -836,14 +1014,32 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           >
             {isFlashcardsMode ? 'Flashcards Mode On' : 'Flashcards'}
           </button>
-          {isStudyMode ? (
+          <button
+            type="button"
+            onClick={() => activateVoiceMode()}
+            className={[
+              'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+              isVoiceMode
+                ? 'border-sky-300 bg-sky-100 text-sky-900'
+                : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100',
+            ].join(' ')}
+            title="Speak your prompt; answers are read aloud"
+          >
+            {isVoiceMode ? 'Voice Mode On' : 'Voice'}
+          </button>
+          {hasInteractionMode ? (
             <button
               type="button"
-              onClick={() => clearStudyMode()}
-              className="rounded-full border border-violet-300 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100"
-              title="Disable study mode"
+              onClick={() => clearInteractionMode()}
+              className={[
+                'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                isVoiceMode
+                  ? 'border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100'
+                  : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100',
+              ].join(' ')}
+              title="Turn off this mode"
             >
-              {isQuizMode ? QUIZ_COMMAND : FLASHCARDS_COMMAND} ×
+              {isVoiceMode ? 'Voice ×' : isQuizMode ? `${QUIZ_COMMAND} ×` : `${FLASHCARDS_COMMAND} ×`}
             </button>
           ) : null}
         </div>
@@ -860,8 +1056,13 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               QUIZ_TOKEN_RE.lastIndex = 0
               FLASHCARDS_TOKEN_RE.lastIndex = 0
               const cleaned = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(value))
-              if (hasFlashcardsToken) setStudyMode('flashcards')
-              else if (hasQuizToken) setStudyMode('quiz')
+              if (hasFlashcardsToken) {
+                stopSpeechOutput()
+                setInteractionMode('flashcards')
+              } else if (hasQuizToken) {
+                stopSpeechOutput()
+                setInteractionMode('quiz')
+              }
               setQuery(cleaned)
               const nextCursor = Math.min(cursor, cleaned.length)
               syncMentionFromValue(cleaned, nextCursor)
@@ -890,11 +1091,27 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               if (e.dataTransfer.types.includes(FILE_DRAG_MIME)) e.preventDefault()
             }}
             onDrop={handleTextareaDrop}
-            placeholder="Ask about these files… (@ to tag, Enter to send)"
+            placeholder={
+              isVoiceMode
+                ? 'Type a question or use Speak — answers are read aloud'
+                : 'Ask about these files… (@ to tag, Enter to send)'
+            }
             disabled={sending || hydrating}
             rows={2}
             className="min-h-11 min-w-0 flex-1 resize-y rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-400 disabled:opacity-60"
           />
+          {isVoiceMode ? (
+            <button
+              type="button"
+              onClick={() => startVoicePromptCapture()}
+              disabled={sending || hydrating || !conversationId || voiceListening}
+              title="Speak your question"
+              className="h-fit shrink-0 self-start inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <HiOutlineMicrophone className="size-4 shrink-0" aria-hidden />
+              {voiceListening ? 'Listening…' : 'Speak'}
+            </button>
+          ) : null}
           <button
             type="submit"
             disabled={sending || hydrating || !query.trim()}

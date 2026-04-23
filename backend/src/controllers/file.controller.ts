@@ -257,6 +257,41 @@ export async function getFileById(
   }
 }
 
+export async function getFileSummarySpeechById(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  const token = req.accessToken;
+  if (!userId || !token) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const rawId = req.params.id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  if (!id || !isUuid(id)) {
+    res.status(400).json({ error: "Invalid file id" });
+    return;
+  }
+  try {
+    const out = await fileService.getUserFileSummarySpeech({
+      accessToken: token,
+      userId,
+      fileId: id,
+    });
+    res.setHeader("Content-Type", out.mimeType);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${safeAttachmentFileName(out.fileName)}-summary.mp3"`
+    );
+    res.status(200).send(out.audioBytes);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function getFileThumbnailById(
   req: Request,
   res: Response,
