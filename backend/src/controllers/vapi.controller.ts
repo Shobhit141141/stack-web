@@ -368,12 +368,23 @@ export async function vapiWebhook(
             ? `${answer}\n\nSources: ${sourceNames.join(", ")}`
             : answer;
 
-          text = appendStackMetaIfNeeded(text, {
-            sources: ragResult.sources.map((s) => ({
+          // dedupe by fileId — rag returns one source per chunk, UI wants one per file
+          const seenSourceIds = new Set<string>();
+          const dedupedSources: Array<{
+            fileId: string;
+            fileName: string;
+            workspaceId: string | null;
+          }> = [];
+          for (const s of ragResult.sources) {
+            if (seenSourceIds.has(s.fileId)) continue;
+            seenSourceIds.add(s.fileId);
+            dedupedSources.push({
               fileId: s.fileId,
               fileName: s.fileName,
-            })),
-          });
+              workspaceId: s.workspaceId ?? null,
+            });
+          }
+          text = appendStackMetaIfNeeded(text, { sources: dedupedSources });
 
           log.info(
             `vapi webhook: askUserFiles ok — answerLen=${text.length} sourceFiles=${ragResult.sources.length}`

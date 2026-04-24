@@ -23,6 +23,8 @@ export type AskSource = {
   chunkMeta?: Prisma.JsonValue;
   /** When set (usually from `chunk_meta.previewFileId`), UI loads thumbnail for this file id. */
   previewFileId?: string;
+  /** file's current workspace id (null = unassigned). */
+  workspaceId?: string | null;
 };
 
 export type AskResult = {
@@ -1052,6 +1054,7 @@ export async function askUserFiles(params: {
         fileName: file.originalName,
         snippet: truncateSnippet(ch.content),
         chunkType: ch.chunkContentType,
+        workspaceId: file.workspaceId ?? null,
       };
       if (ch.chunkMeta !== undefined) {
         src.chunkMeta = ch.chunkMeta as Prisma.JsonValue;

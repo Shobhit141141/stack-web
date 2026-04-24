@@ -16,8 +16,12 @@ import {
 } from '../lib/stack-voice-meta'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
 import { emitFilesUpdated, type FilesUpdatedDetail } from '../lib/file-sync-events'
-import { deleteFile, downloadFileBlob, renameFile } from '../services/file-service'
-import { assignFileToWorkspace } from '../services/workspace-service'
+import { deleteFile, downloadFileBlob } from '../services/file-service'
+import {
+  assignFileToWorkspace,
+  createWorkspace,
+  fetchWorkspaces,
+} from '../services/workspace-service'
 import {
   formatVapiConnectStage,
   VAPI_CONNECT_SLOW_HINT_MS,
@@ -39,6 +43,37 @@ export type VoiceTurn = {
 export type VoiceReferredFile = {
   fileId: string
   fileName: string
+  /** file's current workspace (null = unassigned). used to hide it from move targets. */
+  workspaceId?: string | null
+}
+
+export type VoicePendingMove = {
+  fileId: string
+  fileName: string
+  workspaces: Array<{ id: string; name: string }>
+}
+
+export type VoicePendingNewWorkspace = {
+  fileId: string
+  fileName: string
+  proposedName: string
+}
+
+function dedupeSourcesToReferredFiles(
+  sources: NonNullable<StackVoiceMeta['sources']>,
+): VoiceReferredFile[] {
+  const seen = new Set<string>()
+  const out: VoiceReferredFile[] = []
+  for (const s of sources) {
+    if (!s?.fileId || seen.has(s.fileId)) continue
+    seen.add(s.fileId)
+    out.push({
+      fileId: s.fileId,
+      fileName: s.fileName,
+      workspaceId: s.workspaceId ?? null,
+    })
+  }
+  return out
 }
 
 function applyStackMetaFromText(
@@ -51,7 +86,7 @@ function applyStackMetaFromText(
   console.log(`[voice] ${label} parsed meta:`, meta)
   console.log(`[voice] ${label} sources count:`, meta?.sources?.length ?? 0)
   if (meta?.sources?.length) {
-    setReferredFiles(meta.sources)
+    setReferredFiles(dedupeSourcesToReferredFiles(meta.sources))
     console.log(`[voice] referredFiles set from ${label}:`, meta.sources)
   }
   return meta
@@ -126,6 +161,9 @@ export function useVapi(options?: { workspaceId?: string }) {
   const [assistantTokenLive, setAssistantTokenLive] = useState('')
   const [turns, setTurns] = useState<VoiceTurn[]>([])
   const [referredFiles, setReferredFiles] = useState<VoiceReferredFile[]>([])
+  const [pendingMove, setPendingMove] = useState<VoicePendingMove | null>(null)
+  const [pendingNewWorkspace, setPendingNewWorkspace] =
+    useState<VoicePendingNewWorkspace | null>(null)
   const [connectStage, setConnectStage] = useState('')
   const [connectSlow, setConnectSlow] = useState(false)
   const [lastConnectError, setLastConnectError] = useState<string | null>(null)
@@ -231,6 +269,13 @@ export function useVapi(options?: { workspaceId?: string }) {
               ? `${fileName} is now unassigned`
               : 'File moved'),
         )
+        setPendingMove((prev) => (prev?.fileId === fileId ? null : prev))
+        setReferredFiles((prev) =>
+          prev.map((f) =>
+            f.fileId === fileId ? { ...f, workspaceId: targetWorkspaceId } : f,
+          ),
+        )
+        handledClientActionKeysRef.current.delete(`chooseWorkspace:${fileId}`)
       } catch {
         toast.error('Could not move file')
       }
@@ -238,33 +283,71 @@ export function useVapi(options?: { workspaceId?: string }) {
     [],
   )
 
-  const renameReferredFile = useCallback(
-    async (fileId: string, _fileName: string, newName: string): Promise<boolean> => {
-      const trimmed = newName.trim()
-      if (!trimmed) {
-        toast.error('Enter a name')
-        return false
+  const dismissPendingMove = useCallback(() => {
+    setPendingMove((prev) => {
+      if (prev) {
+        handledClientActionKeysRef.current.delete(`chooseWorkspace:${prev.fileId}`)
+      }
+      return null
+    })
+  }, [])
+
+  const confirmPendingNewWorkspace = useCallback(
+    async (overrideName?: string) => {
+      const p = pendingNewWorkspace
+      if (!p) return
+      const name = (overrideName ?? p.proposedName).trim()
+      if (!name) {
+        toast.error('Workspace name is required')
+        return
       }
       try {
-        await renameFile(fileId, trimmed)
+        const list = await fetchWorkspaces()
+        const existing = list.find(
+          (w) => w.name.toLowerCase() === name.toLowerCase(),
+        )
+        const ws = existing ?? (await createWorkspace(name))
+        await assignFileToWorkspace(p.fileId, ws.id)
         emitFilesUpdated({
           global: true,
-          optimistic: { patchFiles: [{ id: fileId, name: trimmed }] },
+          optimistic: {
+            patchFiles: [{ id: p.fileId, workspaceId: ws.id }],
+          },
         })
         setReferredFiles((prev) =>
           prev.map((f) =>
-            f.fileId === fileId ? { ...f, fileName: trimmed } : f,
+            f.fileId === p.fileId ? { ...f, workspaceId: ws.id } : f,
           ),
         )
-        toast.success('File renamed')
-        return true
+        toast.success(
+          existing
+            ? `Moved ${p.fileName} to ${ws.name}`
+            : `Created ${ws.name} and moved ${p.fileName}`,
+        )
+        setPendingNewWorkspace(null)
+        // clear dedup entries for any proposedName under this file
+        const prefix = `confirmNewWorkspace:${p.fileId}:`
+        for (const k of Array.from(handledClientActionKeysRef.current)) {
+          if (k.startsWith(prefix)) handledClientActionKeysRef.current.delete(k)
+        }
       } catch {
-        toast.error('Could not rename file')
-        return false
+        toast.error('Could not create workspace')
       }
     },
-    [],
+    [pendingNewWorkspace],
   )
+
+  const dismissPendingNewWorkspace = useCallback(() => {
+    setPendingNewWorkspace((prev) => {
+      if (prev) {
+        const prefix = `confirmNewWorkspace:${prev.fileId}:`
+        for (const k of Array.from(handledClientActionKeysRef.current)) {
+          if (k.startsWith(prefix)) handledClientActionKeysRef.current.delete(k)
+        }
+      }
+      return null
+    })
+  }, [])
 
   // full vapi.start + retries; deduped; used by background warm and by start()
   const establishVapiSession = useCallback(async (opts?: { background?: boolean }) => {
@@ -287,6 +370,8 @@ export function useVapi(options?: { workspaceId?: string }) {
         setStatus('connecting')
         setTurns([])
         setReferredFiles([])
+        setPendingMove(null)
+        setPendingNewWorkspace(null)
 
         connectTimersRef.current.slow = setTimeout(
           () => setConnectSlow(true),
@@ -405,6 +490,8 @@ export function useVapi(options?: { workspaceId?: string }) {
       setAssistantTokenLive('')
       sessionAliveRef.current = true
       setReferredFiles([])
+      setPendingMove(null)
+      setPendingNewWorkspace(null)
       sendStackFileToolSessionHint(vapi)
       })
 
@@ -423,6 +510,16 @@ export function useVapi(options?: { workspaceId?: string }) {
       setAssistantTokenLive('')
       sessionAliveRef.current = false
       setVoiceOverlayOpen(false)
+      setPendingMove(null)
+      setPendingNewWorkspace(null)
+      setTurns([])
+      setReferredFiles([])
+      setTranscript('')
+      setAssistantMessage('')
+      setTranscriptLive('')
+      setAssistantLive('')
+      handledClientActionKeysRef.current.clear()
+      handledDeleteToastKeysRef.current.clear()
       })
 
       vapi.on('error', () => {
@@ -478,7 +575,11 @@ export function useVapi(options?: { workspaceId?: string }) {
           setReferredFiles((prev) =>
             prev.map((f) =>
               f.fileId === clientAction.fileId
-                ? { ...f, fileName: clientAction.fileName ?? f.fileName }
+                ? {
+                    ...f,
+                    fileName: clientAction.fileName ?? f.fileName,
+                    workspaceId: clientAction.workspaceId ?? null,
+                  }
                 : f,
             ),
           )
@@ -497,25 +598,38 @@ export function useVapi(options?: { workspaceId?: string }) {
           return
         }
         if (
-          clientAction.type === 'fileRenamed' &&
+          clientAction.type === 'chooseWorkspace' &&
           clientAction.fileId &&
-          clientAction.name
+          clientAction.fileName &&
+          Array.isArray(clientAction.workspaces)
         ) {
-          const key = `fileRenamed:${clientAction.fileId}:${clientAction.name}`
+          const key = `chooseWorkspace:${clientAction.fileId}`
           if (handledClientActionKeysRef.current.has(key)) return
           handledClientActionKeysRef.current.add(key)
-          setReferredFiles((prev) =>
-            prev.map((f) =>
-              f.fileId === clientAction.fileId
-                ? { ...f, fileName: clientAction.name! }
-                : f,
+          setPendingMove({
+            fileId: clientAction.fileId,
+            fileName: clientAction.fileName,
+            workspaces: clientAction.workspaces.filter(
+              (w): w is { id: string; name: string } =>
+                !!w && typeof w.id === 'string' && typeof w.name === 'string',
             ),
-          )
-          emitFilesUpdated({
-            global: true,
-            optimistic: {
-              patchFiles: [{ id: clientAction.fileId, name: clientAction.name }],
-            },
+          })
+          return
+        }
+        if (
+          clientAction.type === 'confirmNewWorkspace' &&
+          clientAction.fileId &&
+          clientAction.fileName &&
+          clientAction.proposedName
+        ) {
+          // include proposedName so a re-spelling by the user surfaces a fresh panel
+          const key = `confirmNewWorkspace:${clientAction.fileId}:${clientAction.proposedName.toLowerCase()}`
+          if (handledClientActionKeysRef.current.has(key)) return
+          handledClientActionKeysRef.current.add(key)
+          setPendingNewWorkspace({
+            fileId: clientAction.fileId,
+            fileName: clientAction.fileName,
+            proposedName: clientAction.proposedName,
           })
         }
       }
@@ -627,7 +741,7 @@ export function useVapi(options?: { workspaceId?: string }) {
               { id: crypto.randomUUID(), role: 'assistant', text: displayText },
             ])
             if (meta?.sources?.length) {
-              setReferredFiles(meta.sources)
+              setReferredFiles(dedupeSourcesToReferredFiles(meta.sources))
               console.log('[voice] referredFiles set:', meta.sources)
             }
             runMetaClientAction(meta)
@@ -651,7 +765,7 @@ export function useVapi(options?: { workspaceId?: string }) {
         vapiInitPromiseRef.current = null
       }
     }
-  }, [VAPI_PUBLIC_KEY, clearConnectTimers, downloadReferredFile, workspaceId, copyReferredFile, deleteReferredFile])
+  }, [clearConnectTimers, downloadReferredFile, workspaceId])
 
   useEffect(() => {
     return () => {
@@ -722,7 +836,7 @@ export function useVapi(options?: { workspaceId?: string }) {
     setVoiceOverlayOpen(false)
   }, [clearConnectTimers])
 
-  // hard stop: tear down the session completely
+  // hard stop: tear down the session completely and wipe transient UI state so a re-open starts clean
   const stop = useCallback(() => {
     clearConnectTimers()
     setConnectSlow(false)
@@ -732,6 +846,15 @@ export function useVapi(options?: { workspaceId?: string }) {
     assistantTokenAccRef.current = ''
     setAssistantTokenLive('')
     setReferredFiles([])
+    setPendingMove(null)
+    setPendingNewWorkspace(null)
+    setTurns([])
+    setTranscript('')
+    setAssistantMessage('')
+    setTranscriptLive('')
+    setAssistantLive('')
+    handledClientActionKeysRef.current.clear()
+    handledDeleteToastKeysRef.current.clear()
     setStatus('idle')
     setVoiceOverlayOpen(false)
   }, [clearConnectTimers])
@@ -754,6 +877,8 @@ export function useVapi(options?: { workspaceId?: string }) {
     assistantTokenLive,
     turns,
     referredFiles,
+    pendingMove,
+    pendingNewWorkspace,
     connectStage,
     connectSlow,
     lastConnectError,
@@ -769,6 +894,8 @@ export function useVapi(options?: { workspaceId?: string }) {
     copyReferredFile,
     deleteReferredFile,
     moveReferredFile,
-    renameReferredFile,
+    dismissPendingMove,
+    confirmPendingNewWorkspace,
+    dismissPendingNewWorkspace,
   }
 }

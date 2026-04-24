@@ -1,22 +1,29 @@
 // matches backend vapi-stack-meta markers (<<<STACK_META>>> ... <<<END_STACK_META>>>)
 
 export type StackVoiceMeta = {
-  sources?: Array<{ fileId: string; fileName: string }>
+  sources?: Array<{
+    fileId: string
+    fileName: string
+    /** file's current workspace id (null = unassigned). used to hide it from move targets. */
+    workspaceId?: string | null
+  }>
   clientAction?: {
     type:
       | 'openUrl'
       | 'copyText'
       | 'downloadFile'
       | 'fileWorkspaceChanged'
-      | 'fileRenamed'
+      | 'chooseWorkspace'
+      | 'confirmNewWorkspace'
     url?: string
     text?: string
     fileId?: string
     fileName?: string
     previousWorkspaceId?: string | null
     workspaceId?: string | null
-    name?: string
-    previousName?: string
+    workspaces?: Array<{ id: string; name: string }>
+    /** name the model heard when user asked to create-and-move */
+    proposedName?: string
   }
 }
 

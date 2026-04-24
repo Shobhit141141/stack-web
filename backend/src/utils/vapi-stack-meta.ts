@@ -1,12 +1,18 @@
 export type StackMetaPayload = {
-  sources?: Array<{ fileId: string; fileName: string }>;
+  sources?: Array<{
+    fileId: string;
+    fileName: string;
+    /** file's current workspace id (null = unassigned). lets UI hide it from move targets. */
+    workspaceId?: string | null;
+  }>;
   clientAction?: {
     type:
       | "openUrl"
       | "copyText"
       | "downloadFile"
       | "fileWorkspaceChanged"
-      | "fileRenamed";
+      | "chooseWorkspace"
+      | "confirmNewWorkspace";
     url?: string;
     text?: string;
     fileId?: string;
@@ -15,9 +21,10 @@ export type StackMetaPayload = {
     previousWorkspaceId?: string | null;
     /** workspace after move (null = unassigned) */
     workspaceId?: string | null;
-    /** new display name after rename */
-    name?: string;
-    previousName?: string;
+    /** workspace options offered for an interactive move */
+    workspaces?: Array<{ id: string; name: string }>;
+    /** name the voice model heard; UI confirms spelling before creating */
+    proposedName?: string;
   };
 };
 

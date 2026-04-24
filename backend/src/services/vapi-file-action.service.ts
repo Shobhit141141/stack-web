@@ -1,6 +1,7 @@
 import * as fileRepository from "../repositories/file.repository.js";
 import * as workspaceRepository from "../repositories/workspace.repository.js";
 import * as fileService from "./file.service.js";
+import * as workspaceService from "./workspace.service.js";
 import type { StackMetaPayload } from "../utils/vapi-stack-meta.js";
 import { isUuid } from "../utils/uuid.js";
 
@@ -11,10 +12,9 @@ export async function handleStackFileAction(params: {
   args: Record<string, unknown>;
 }): Promise<{ result: string; meta: StackMetaPayload }> {
   const action = String(params.args.action ?? "").toLowerCase().trim();
-  if (!["download", "copy", "delete", "move", "rename"].includes(action)) {
+  if (!["download", "copy", "delete", "move"].includes(action)) {
     return {
-      result:
-        "Unknown action. Use download, copy, delete, move, or rename.",
+      result: "Unknown action. Use download, copy, delete, or move.",
       meta: {},
     };
   }
@@ -143,48 +143,57 @@ export async function handleStackFileAction(params: {
     };
   }
 
-  if (action === "rename") {
-    const rawNew =
-      params.args.newName ?? params.args.name ?? params.args.newFileName;
-    const newName =
-      typeof rawNew === "string" ? rawNew.trim() : "";
-    if (!newName) {
-      return {
-        result: "Say the new file name, or pass newName in the tool arguments.",
-        meta: {},
-      };
-    }
-    try {
-      const updated = await fileService.renameUserFile({
-        userId: params.userId,
-        fileId: resolved.id,
-        name: newName,
-      });
-      return {
-        result: `Renamed to ${updated.name}.`,
-        meta: {
-          clientAction: {
-            type: "fileRenamed",
-            fileId: resolved.id,
-            name: updated.name,
-            previousName: resolved.originalName,
-          },
-        },
-      };
-    } catch {
-      return {
-        result: "Could not rename that file.",
-        meta: {},
-      };
-    }
-  }
-
   // move
   const wsRaw = params.args.workspaceId;
   const wsNameRaw = params.args.workspaceName;
+  const newWsNameRaw = params.args.newWorkspaceName;
+  const confirmNewWs = params.args.confirmNewWorkspace === true;
   let targetWid: string | null | undefined;
 
-  if (wsRaw === null) {
+  // create-new-workspace + move path (two-turn confirm)
+  if (typeof newWsNameRaw === "string" && newWsNameRaw.trim()) {
+    const proposed = newWsNameRaw.trim();
+    const list = await workspaceRepository.listWorkspacesForUser(
+      params.userId
+    );
+    const existing = list.find(
+      (w) => w.name.toLowerCase() === proposed.toLowerCase()
+    );
+
+    if (!confirmNewWs) {
+      // first turn: ask user to confirm name/spelling
+      return {
+        result: existing
+          ? `You already have a workspace called "${existing.name}". Move "${resolved.originalName}" there? Say yes, or use a different name.`
+          : `Create a new workspace called "${proposed}" and move "${resolved.originalName}" there? Say yes, or spell the name again.`,
+        meta: {
+          clientAction: {
+            type: "confirmNewWorkspace",
+            fileId: resolved.id,
+            fileName: resolved.originalName,
+            proposedName: existing?.name ?? proposed,
+          },
+        },
+      };
+    }
+
+    if (existing) {
+      targetWid = existing.id;
+    } else {
+      try {
+        const created = await workspaceService.createWorkspace(
+          params.userId,
+          proposed
+        );
+        targetWid = created.id;
+      } catch {
+        return {
+          result: `Could not create a workspace named "${proposed}".`,
+          meta: {},
+        };
+      }
+    }
+  } else if (wsRaw === null) {
     targetWid = null;
   } else if (typeof wsRaw === "string" && isUuid(wsRaw)) {
     targetWid = wsRaw;
@@ -215,9 +224,36 @@ export async function handleStackFileAction(params: {
   }
 
   if (targetWid === undefined) {
+    const list = await workspaceRepository.listWorkspacesForUser(
+      params.userId
+    );
+    // exclude the file's current workspace — moving there is a no-op
+    const options = list
+      .filter((w) => w.id !== resolved.workspaceId)
+      .map((w) => ({ id: w.id, name: w.name }));
     return {
-      result:
-        "Say which workspace to move to (workspace name), or say unassigned with workspaceId null in tool args.",
+      result: `Pick a workspace to move "${resolved.originalName}" to.`,
+      meta: {
+        clientAction: {
+          type: "chooseWorkspace",
+          fileId: resolved.id,
+          fileName: resolved.originalName,
+          workspaces: options,
+        },
+      },
+    };
+  }
+
+  // reject no-op (already in this workspace)
+  if (targetWid !== null && targetWid === resolved.workspaceId) {
+    return {
+      result: `"${resolved.originalName}" is already in that workspace.`,
+      meta: {},
+    };
+  }
+  if (targetWid === null && resolved.workspaceId === null) {
+    return {
+      result: `"${resolved.originalName}" is already unassigned.`,
       meta: {},
     };
   }

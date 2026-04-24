@@ -23,6 +23,8 @@ export function VoiceButton() {
     assistantTokenLive,
     turns,
     referredFiles,
+    pendingMove,
+    pendingNewWorkspace,
     lastConnectError,
     clearLastConnectError,
     configured,
@@ -33,7 +35,9 @@ export function VoiceButton() {
     copyReferredFile,
     deleteReferredFile,
     moveReferredFile,
-    renameReferredFile,
+    dismissPendingMove,
+    confirmPendingNewWorkspace,
+    dismissPendingNewWorkspace,
   } = useVapi({ workspaceId })
 
   if (!configured) return null
@@ -82,12 +86,16 @@ export function VoiceButton() {
             turns={turns}
             referredFiles={referredFiles}
             workspaces={overlayWorkspaces}
+            pendingMove={pendingMove}
+            pendingNewWorkspace={pendingNewWorkspace}
             onClose={stop}
             onDownloadFile={downloadReferredFile}
             onCopyFileLink={copyReferredFile}
             onDeleteFile={deleteReferredFile}
             onMoveFile={moveReferredFile}
-            onRenameFile={renameReferredFile}
+            onDismissPendingMove={dismissPendingMove}
+            onConfirmPendingNewWorkspace={confirmPendingNewWorkspace}
+            onDismissPendingNewWorkspace={dismissPendingNewWorkspace}
           />
         ) : null}
       </AnimatePresence>
