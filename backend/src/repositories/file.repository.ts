@@ -90,6 +90,24 @@ export async function createContent(hash: string, db: FileDbClient = prisma) {
   return rows[0]!;
 }
 
+// returns ready summaries keyed by contentId — only status=ready with non-empty text are included.
+export async function findContentSummariesByIds(
+  contentIds: string[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (contentIds.length === 0) return out;
+  const rows = await prisma.content.findMany({
+    where: { id: { in: contentIds } },
+    select: { id: true, summary: true, summaryStatus: true },
+  });
+  for (const r of rows) {
+    if (r.summaryStatus !== "ready") continue;
+    const s = r.summary?.trim();
+    if (s) out.set(r.id, s);
+  }
+  return out;
+}
+
 export async function markContentSummaryPending(
   contentId: string
 ): Promise<void> {

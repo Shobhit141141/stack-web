@@ -35,31 +35,40 @@ export type AskResult = {
 
 type ChunkHit = searchRepository.ChunkSearchRow & { score: number };
 
-/** Prefer non-text chunks first so table/image captions stay in context when scores are competitive. */
-function selectChunksWithTypeDiversity(sortedByScore: ChunkHit[], max: number): ChunkHit[] {
-  if (max <= 0) return [];
+/**
+ * Pick up to `max` chunks from a single content. Prefers top-scored chunks (usually text for
+ * summary-style questions) and only swaps in a non-text chunk when its score is close enough
+ * to the weakest selected chunk, so figures/tables don't starve the context when the embedding
+ * model clearly prefers text.
+ */
+const NON_TEXT_SWAP_SCORE_RATIO = 0.85;
+function selectChunksWithTypeDiversity(
+  sortedByScore: ChunkHit[],
+  max: number
+): ChunkHit[] {
+  if (max <= 0 || sortedByScore.length === 0) return [];
   if (sortedByScore.length <= max) return sortedByScore;
 
-  const key = (h: ChunkHit) => `${h.contentId}:${h.chunkIndex}`;
-  const nonText = sortedByScore.filter((h) => (h.chunkContentType ?? "text") !== "text");
-  const out: ChunkHit[] = [];
-  const seen = new Set<string>();
+  const topByScore = sortedByScore.slice(0, max);
+  const hasNonText = topByScore.some(
+    (h) => (h.chunkContentType ?? "text") !== "text"
+  );
+  if (hasNonText) return topByScore;
 
-  for (const h of nonText) {
-    if (out.length >= max) break;
-    const k = key(h);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(h);
+  // No non-text chunk made the top cut — see if the best non-text chunk is close enough in score
+  // to the weakest selected chunk to justify swapping it in for variety.
+  const bestNonText = sortedByScore.find(
+    (h) => (h.chunkContentType ?? "text") !== "text"
+  );
+  if (!bestNonText) return topByScore;
+
+  const weakest = topByScore[topByScore.length - 1]!;
+  if (weakest.score <= 0) return topByScore;
+  if (bestNonText.score < weakest.score * NON_TEXT_SWAP_SCORE_RATIO) {
+    return topByScore;
   }
-  for (const h of sortedByScore) {
-    if (out.length >= max) break;
-    const k = key(h);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(h);
-  }
-  return out;
+
+  return [...topByScore.slice(0, -1), bestNonText];
 }
 
 const SNIPPET_MAX_CHARS = 400;
@@ -805,8 +814,8 @@ export async function askUserFiles(params: {
   // - chunks: an array of chunks that belong to the pack, sorted by score in descending order, sliced to maxCp
   for (const [contentId, arr] of byContent) {
     arr.sort((a, b) => b.score - a.score);
+    const bestScore = arr[0]?.score ?? 0;
     const chunks = selectChunksWithTypeDiversity(arr, maxCp);
-    const bestScore = chunks[0]?.score ?? 0;
     packs.push({ contentId, bestScore, chunks });
   }
 
@@ -828,32 +837,69 @@ export async function askUserFiles(params: {
   const scoresAfterDedup = formatScoresFromPacks(topPacks);
 
   if (topPacks.length === 0) {
-    const totalMs = performance.now() - t0;
-    log.info(
-      askApiPanel({
-        userId: params.userId,
-        query: rawQuery,
-        queryChars: rawQuery.length,
-        scopedFileIds,
-        embedMs,
-        vectorMs,
-        llmMs: 0,
-        totalMs,
-        chunksFetched: rows.length,
-        chunksAfterScoreFilter,
-        distinctContentsPacked: packs.length,
-        contentIdsBeforeDedup,
-        contentIdsAfterDedup,
-        scoresBeforeDedup,
-        scoresAfterDedup,
-        selectedChunksDetail: "(none)",
-        selectedChunkCount: 0,
-        contextChars: 0,
-        model: ragCompletionModelDefault(),
-        modelVersion: undefined,
-      })
-    );
-    return { answer: "Not found in files", sources: [] };
+    // No chunks passed the score filter. If the caller scoped the search to specific files,
+    // their stored summaries are still useful context — use them so broad "summarize this" /
+    // "what is this file about" questions don't hit a dead end.
+    if (restrictContentIds && restrictContentIds.length > 0) {
+      const fallbackContentIds = restrictContentIds.slice(
+        0,
+        env.RAG_TOP_CONTENT_COUNT
+      );
+      const fallbackSummaries =
+        await fileRepository.findContentSummariesByIds(fallbackContentIds);
+      if (fallbackSummaries.size > 0) {
+        const fallbackFiles =
+          await fileRepository.findFilesByContentIdsForUser(
+            params.userId,
+            fallbackContentIds
+          );
+        const byContent = new Map<string, (typeof fallbackFiles)[number]>();
+        for (const f of fallbackFiles) {
+          if (!byContent.has(f.contentId)) byContent.set(f.contentId, f);
+        }
+        for (const cid of fallbackContentIds) {
+          const s = fallbackSummaries.get(cid);
+          const file = byContent.get(cid);
+          if (!s || !file) continue;
+          topPacks.push({ contentId: cid, bestScore: 0, chunks: [] });
+          topContentIds.push(cid);
+        }
+        if (topPacks.length > 0) {
+          log.info(
+            `askUserFiles: 0-chunk fallback — using ${topPacks.length} content summaries as context`
+          );
+        }
+      }
+    }
+
+    if (topPacks.length === 0) {
+      const totalMs = performance.now() - t0;
+      log.info(
+        askApiPanel({
+          userId: params.userId,
+          query: rawQuery,
+          queryChars: rawQuery.length,
+          scopedFileIds,
+          embedMs,
+          vectorMs,
+          llmMs: 0,
+          totalMs,
+          chunksFetched: rows.length,
+          chunksAfterScoreFilter,
+          distinctContentsPacked: packs.length,
+          contentIdsBeforeDedup,
+          contentIdsAfterDedup,
+          scoresBeforeDedup,
+          scoresAfterDedup,
+          selectedChunksDetail: "(none)",
+          selectedChunkCount: 0,
+          contextChars: 0,
+          model: ragCompletionModelDefault(),
+          modelVersion: undefined,
+        })
+      );
+      return { answer: "Not found in files", sources: [] };
+    }
   }
 
   const files = await fileRepository.findFilesByContentIdsForUser(
@@ -870,15 +916,24 @@ export async function askUserFiles(params: {
     arr.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
+  // Per-file summaries anchor broad questions ("what is this file about", "summarize ...") that
+  // the embedding may miss with chunk-level text — image/diagram chunks often rank above prose.
+  const summaryByContent = await fileRepository.findContentSummariesByIds(
+    topContentIds
+  );
+
   const contextParts: string[] = [];
   for (const p of topPacks) {
     const group = byContentFiles.get(p.contentId) ?? [];
     const file = group[0];
     if (!file) continue;
     const chunkTexts = p.chunks.map((c) => c.content.trim()).filter(Boolean);
-    if (chunkTexts.length === 0) continue;
-    const body = chunkTexts.join("\n\n");
-    contextParts.push(`[File: ${file.originalName}]\n${body}`);
+    const summary = summaryByContent.get(p.contentId);
+    if (chunkTexts.length === 0 && !summary) continue;
+    const sections: string[] = [];
+    if (summary) sections.push(`Overview: ${summary}`);
+    if (chunkTexts.length > 0) sections.push(chunkTexts.join("\n\n"));
+    contextParts.push(`[File: ${file.originalName}]\n${sections.join("\n\n")}`);
   }
 
   let context = contextParts.join("\n\n");
@@ -1048,6 +1103,19 @@ export async function askUserFiles(params: {
     const group = byContentFiles.get(p.contentId) ?? [];
     const file = group[0];
     if (!file) continue;
+    if (p.chunks.length === 0) {
+      // summary-only fallback pack — surface the file so the UI still links to it
+      const summary = summaryByContent.get(p.contentId);
+      if (summary) {
+        sources.push({
+          fileId: file.id,
+          fileName: file.originalName,
+          snippet: truncateSnippet(summary),
+          workspaceId: file.workspaceId ?? null,
+        });
+      }
+      continue;
+    }
     for (const ch of p.chunks) {
       const src: AskSource = {
         fileId: file.id,
@@ -1069,10 +1137,19 @@ export async function askUserFiles(params: {
 
   if (sources.length > 0 && isNotFoundStyleAnswer(answer)) {
     const fileNames = [...new Set(sources.map((s) => s.fileName))].slice(0, 3);
-    answer =
+    const list =
       fileNames.length === 1
-        ? `I found relevant content in ${fileNames[0]}.`
-        : `I found relevant content in ${fileNames.join(", ")}.`;
+        ? fileNames[0]
+        : fileNames.length === 2
+          ? `${fileNames[0]} and ${fileNames[1]}`
+          : `${fileNames.slice(0, -1).join(", ")}, and ${fileNames[fileNames.length - 1]}`;
+    // only image/table chunks reached the LLM — it had no text to summarize. Be honest about it.
+    const imageOrTableOnly = sources.every(
+      (s) => s.chunkType === "image" || s.chunkType === "table"
+    );
+    answer = imageOrTableOnly
+      ? `I only found figures or tables in ${list} — no readable text matched that question. Open the file to view them, or ask about something more specific.`
+      : `I couldn't find a direct answer for that in your files. ${list} looked related — try a more specific question, or open them to check.`;
   }
 
   if (sources.length > 0) {
