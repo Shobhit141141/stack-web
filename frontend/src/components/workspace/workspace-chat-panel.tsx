@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
-import { HiOutlineDocumentDuplicate, HiOutlineMicrophone } from 'react-icons/hi2'
+import { HiOutlineDocumentDuplicate } from 'react-icons/hi2'
 import {
   ChatAnswerContent,
   ChatSourceFileChips,
@@ -70,29 +70,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   },
 ]
 
-type InteractionMode = 'quiz' | 'flashcards' | 'voice' | null
-
-// narrow surface for browser speech APIs (constructors vary by prefix)
-type BrowserSpeechRecognition = {
-  lang: string
-  interimResults: boolean
-  continuous: boolean
-  start: () => void
-  stop: () => void
-  onstart: (() => void) | null
-  onend: (() => void) | null
-  onerror: (() => void) | null
-  onresult: ((ev: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null
-}
-
-function getSpeechRecognitionCtor(): (new () => BrowserSpeechRecognition) | null {
-  if (typeof window === 'undefined') return null
-  const w = window as unknown as {
-    SpeechRecognition?: new () => BrowserSpeechRecognition
-    webkitSpeechRecognition?: new () => BrowserSpeechRecognition
-  }
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
-}
+type InteractionMode = 'quiz' | 'flashcards' | 'audio' | null
 
 // reads plain text aloud; optional onEnd after utterance finishes
 function speakPlainText(text: string, onEnd?: () => void): void {
@@ -293,11 +271,14 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   const [slashFilter, setSlashFilter] = useState('')
   const [slashHighlight, setSlashHighlight] = useState(0)
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(null)
-  const [voiceListening, setVoiceListening] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
+  const interactionModeRef = useRef<InteractionMode>(null)
+
+  useEffect(() => {
+    interactionModeRef.current = interactionMode
+  }, [interactionMode])
 
   useEffect(() => {
     let cancelled = false
@@ -354,12 +335,6 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   useEffect(() => {
     return () => {
       stopSpeechOutput()
-      try {
-        speechRecognitionRef.current?.stop()
-      } catch {
-        // ignore
-      }
-      speechRecognitionRef.current = null
     }
   }, [])
 
@@ -383,7 +358,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   }, [slashFilter])
   const isQuizMode = interactionMode === 'quiz'
   const isFlashcardsMode = interactionMode === 'flashcards'
-  const isVoiceMode = interactionMode === 'voice'
+  const isAudioMode = interactionMode === 'audio'
   const hasInteractionMode = interactionMode !== null
   const quizResultById = useMemo(() => {
     const map = new Map<string, QuizResultPayload>()
@@ -455,12 +430,6 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
 
   function activateStudyMode(mode: 'quiz' | 'flashcards', value?: string, cursor?: number) {
     stopSpeechOutput()
-    try {
-      speechRecognitionRef.current?.stop()
-    } catch {
-      // ignore
-    }
-    setVoiceListening(false)
     const base = value ?? query
     const next = stripFlashcardsTokenAnywhere(
       stripQuizTokenAnywhere(
@@ -477,16 +446,10 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     })
   }
 
-  function activateVoiceMode() {
+  function activateAudioMode() {
     stopSpeechOutput()
-    try {
-      speechRecognitionRef.current?.stop()
-    } catch {
-      // ignore
-    }
-    setVoiceListening(false)
     const next = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(query))
-    setInteractionMode('voice')
+    setInteractionMode('audio')
     setQuery(next)
     setSlashOpen(false)
     requestAnimationFrame(() => {
@@ -498,12 +461,6 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
 
   function clearInteractionMode() {
     stopSpeechOutput()
-    try {
-      speechRecognitionRef.current?.stop()
-    } catch {
-      // ignore
-    }
-    setVoiceListening(false)
     setInteractionMode(null)
     const next = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(query))
     setQuery(next)
@@ -526,56 +483,6 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     if (cmd.command === FLASHCARDS_COMMAND) {
       activateStudyMode('flashcards', value, cursor)
       return
-    }
-  }
-
-  function startVoicePromptCapture() {
-    const Ctor = getSpeechRecognitionCtor()
-    if (!Ctor) {
-      toast.error('Voice input is not supported in this browser.')
-      return
-    }
-    if (!conversationId) {
-      toast.error('Conversation is not ready yet. Please try again in a moment.')
-      return
-    }
-    if (sending || hydrating) return
-    try {
-      speechRecognitionRef.current?.stop()
-    } catch {
-      // ignore
-    }
-    const rec = new Ctor()
-    speechRecognitionRef.current = rec
-    rec.lang = (navigator.language || 'en-US').trim() || 'en-US'
-    rec.interimResults = false
-    rec.continuous = false
-    rec.onstart = () => setVoiceListening(true)
-    rec.onend = () => {
-      setVoiceListening(false)
-      speechRecognitionRef.current = null
-    }
-    rec.onerror = () => {
-      setVoiceListening(false)
-      toast.error('Could not capture speech. Check the microphone permission.')
-    }
-    rec.onresult = (ev: { results: ArrayLike<{ 0: { transcript: string } }> }) => {
-      const last = ev.results.length - 1
-      const spoken = ev.results[last]?.[0]?.transcript?.trim() ?? ''
-      if (!spoken) {
-        toast.error('No speech detected. Try again.')
-        return
-      }
-      const preview = spoken.length > 120 ? `${spoken.slice(0, 117)}…` : spoken
-      speakPlainText(`Got it. You said: ${preview}.`, () => {
-        void submitUserMessage(spoken)
-      })
-    }
-    try {
-      rec.start()
-    } catch {
-      setVoiceListening(false)
-      toast.error('Could not start voice input.')
     }
   }
 
@@ -670,7 +577,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           ...(res.payload ? { payload: res.payload } : {}),
         },
       ])
-      if (interactionMode === 'voice') {
+      if (interactionModeRef.current === 'audio') {
         const out = textForSpeechOutput(res.answer)
         if (out) speakPlainText(out)
       }
@@ -681,7 +588,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         ...prev,
         { role: 'assistant', text: 'Something went wrong. Try again.' },
       ])
-      if (interactionMode === 'voice') {
+      if (interactionModeRef.current === 'audio') {
         speakPlainText('Something went wrong. Try again.')
       }
     } finally {
@@ -877,7 +784,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                   ) : (
                     <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
                   )}
-                  <ChatSummaryAudioPlayer sources={t.sources ?? []} />
+                  {isAudioMode ? <ChatSummaryAudioPlayer sources={t.sources ?? []} /> : null}
                   {t.payload && t.payload.kind === 'quiz' ? (
                     <ChatQuizCard
                       quiz={t.payload}
@@ -1016,16 +923,16 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           </button>
           <button
             type="button"
-            onClick={() => activateVoiceMode()}
+            onClick={() => activateAudioMode()}
             className={[
               'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-              isVoiceMode
+              isAudioMode
                 ? 'border-sky-300 bg-sky-100 text-sky-900'
                 : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100',
             ].join(' ')}
-            title="Speak your prompt; answers are read aloud"
+            title="Read assistant responses aloud"
           >
-            {isVoiceMode ? 'Voice Mode On' : 'Voice'}
+            {isAudioMode ? 'Audio Mode On' : 'Audio'}
           </button>
           {hasInteractionMode ? (
             <button
@@ -1033,13 +940,13 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               onClick={() => clearInteractionMode()}
               className={[
                 'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                isVoiceMode
+                isAudioMode
                   ? 'border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100'
                   : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100',
               ].join(' ')}
               title="Turn off this mode"
             >
-              {isVoiceMode ? 'Voice ×' : isQuizMode ? `${QUIZ_COMMAND} ×` : `${FLASHCARDS_COMMAND} ×`}
+              {isAudioMode ? 'Audio ×' : isQuizMode ? `${QUIZ_COMMAND} ×` : `${FLASHCARDS_COMMAND} ×`}
             </button>
           ) : null}
         </div>
@@ -1092,26 +999,14 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
             }}
             onDrop={handleTextareaDrop}
             placeholder={
-              isVoiceMode
-                ? 'Type a question or use Speak — answers are read aloud'
+              isAudioMode
+                ? 'Ask anything — answers are returned as text and audio'
                 : 'Ask about these files… (@ to tag, Enter to send)'
             }
             disabled={sending || hydrating}
             rows={2}
             className="min-h-11 min-w-0 flex-1 resize-y rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-400 disabled:opacity-60"
           />
-          {isVoiceMode ? (
-            <button
-              type="button"
-              onClick={() => startVoicePromptCapture()}
-              disabled={sending || hydrating || !conversationId || voiceListening}
-              title="Speak your question"
-              className="h-fit shrink-0 self-start inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <HiOutlineMicrophone className="size-4 shrink-0" aria-hidden />
-              {voiceListening ? 'Listening…' : 'Speak'}
-            </button>
-          ) : null}
           <button
             type="submit"
             disabled={sending || hydrating || !query.trim()}
