@@ -1,10 +1,13 @@
 import { inspect } from "node:util";
+import { ChunkContentType } from "@prisma/client";
 import { embeddingRuntimeLabel, env, hasEmbeddingApiKey } from "../config/env.js";
-import { replaceContentChunks } from "../repositories/chunk.repository.js";
+import { replaceContentChunks, type ChunkInsertRow } from "../repositories/chunk.repository.js";
 import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
 import { chunkExtractedText } from "./chunking.service.js";
 import { embedTexts } from "./embedding.service.js";
+import type { PdfImageIndexItem } from "./pdf-embedded-images.service.js";
+import { logPdfVisualPipeline } from "../utils/debug-log.util.js";
 
 // adds qdrant context when vector index is configured (current backend).
 function qdrantPipelineFields(): Record<string, string> {
@@ -15,16 +18,24 @@ function qdrantPipelineFields(): Record<string, string> {
   };
 }
 
-export async function indexExtractedTextForFile(
+export type DocumentIndexOptions = {
+  pdfImageItems?: PdfImageIndexItem[];
+};
+
+export async function indexExtractedContentForFile(
   contentId: string,
-  cleanedText: string
+  cleanedText: string,
+  options?: DocumentIndexOptions
 ): Promise<void> {
   const t0 = Date.now();
+  const pdfImages = options?.pdfImageItems ?? [];
 
-  if (!cleanedText.trim()) {
+  const textChunks = cleanedText.trim() ? chunkExtractedText(cleanedText) : [];
+
+  if (textChunks.length === 0 && pdfImages.length === 0) {
     log.info(
       filePipelinePanel("FILE PIPELINE · index · skipped", contentId, {
-        reason: "cleaned text empty after extraction",
+        reason: "no text chunks and no PDF figure captions",
       })
     );
     return;
@@ -43,42 +54,24 @@ export async function indexExtractedTextForFile(
     return;
   }
 
-  const chunks = chunkExtractedText(cleanedText);
-  if (chunks.length === 0) {
-    log.info(
-      filePipelinePanel("FILE PIPELINE · index · skipped", contentId, {
-        reason: "chunking produced zero segments",
-      })
-    );
-    return;
+  const embedInputs: string[] = textChunks.map((c) => c.content);
+  for (const img of pdfImages) {
+    embedInputs.push(img.caption);
   }
 
   const tChunk = Date.now();
-  const tokenCounts = chunks.map((c) => c.tokenCount);
-  const totalChunkTokens = tokenCounts.reduce((a, b) => a + b, 0);
-  const totalChunkChars = chunks.reduce((a, c) => a + c.content.length, 0);
-  const firstPreview =
-    chunks[0]?.content.slice(0, 120) +
-    (chunks[0] && chunks[0].content.length > 120 ? "…" : "");
-
   log.info(
     filePipelinePanel("FILE PIPELINE · index · chunking done", contentId, {
+      textChunkCount: textChunks.length,
+      pdfFigureChunks: pdfImages.length,
       cleanedTextChars: cleanedText.length,
-      chunkCount: chunks.length,
-      totalChunkChars,
-      totalChunkTokens,
-      avgChunkChars: Math.round(totalChunkChars / chunks.length),
-      avgChunkTokens: Math.round(totalChunkTokens / chunks.length),
-      minTokens: Math.min(...tokenCounts),
-      maxTokens: Math.max(...tokenCounts),
-      firstChunkPreview: firstPreview || "(none)",
       ms: tChunk - t0,
       next: `${embeddingRuntimeLabel()} batch → replaceContentChunks (pg + qdrant)`,
       ...qdrantPipelineFields(),
     })
   );
 
-  const embeddings = await embedTexts(chunks.map((c) => c.content));
+  const embeddings = await embedTexts(embedInputs);
   const tEmbed = Date.now();
   const embedDims = embeddings[0]?.length ?? 0;
 
@@ -91,12 +84,30 @@ export async function indexExtractedTextForFile(
     })
   );
 
-  const rows = chunks.map((c, i) => ({
-    content: c.content,
-    embedding: embeddings[i]!,
-    chunkIndex: i,
-    tokenCount: c.tokenCount,
-  }));
+  const rows: ChunkInsertRow[] = [];
+  let ei = 0;
+  for (let i = 0; i < textChunks.length; i++) {
+    const c = textChunks[i]!;
+    rows.push({
+      content: c.content,
+      embedding: embeddings[ei++]!,
+      chunkIndex: i,
+      tokenCount: c.tokenCount,
+      chunkContentType: ChunkContentType.text,
+    });
+  }
+  const textLen = textChunks.length;
+  for (let j = 0; j < pdfImages.length; j++) {
+    const img = pdfImages[j]!;
+    rows.push({
+      content: img.caption,
+      embedding: embeddings[ei++]!,
+      chunkIndex: textLen + j,
+      tokenCount: img.tokenCount,
+      chunkContentType: ChunkContentType.image,
+      chunkMeta: img.chunkMeta,
+    });
+  }
 
   log.info(
     filePipelinePanel("FILE PIPELINE · index · persist start", contentId, {
@@ -105,6 +116,17 @@ export async function indexExtractedTextForFile(
       ...qdrantPipelineFields(),
     })
   );
+
+  if (pdfImages.length > 0) {
+    logPdfVisualPipeline({
+      phase: "index_embed_persist",
+      contentId,
+      textChunkCount: textChunks.length,
+      pdfFigureChunkCount: pdfImages.length,
+      totalRows: rows.length,
+      embeddingModel: embeddingRuntimeLabel(),
+    });
+  }
 
   await replaceContentChunks(contentId, rows);
   const tDb = Date.now();
@@ -120,23 +142,37 @@ export async function indexExtractedTextForFile(
       ...qdrantPipelineFields(),
     })
   );
+
+  if (pdfImages.length > 0) {
+    logPdfVisualPipeline({
+      phase: "index_complete",
+      contentId,
+      chunksWritten: rows.length,
+      ms_chunking: tChunk - t0,
+      ms_embeddings: tEmbed - tChunk,
+      ms_persist: tDb - tEmbed,
+      ms_total: tDb - t0,
+    });
+  }
 }
 
 export function scheduleDocumentIndexAfterExtraction(
   contentId: string,
-  cleanedText: string
+  cleanedText: string,
+  options?: DocumentIndexOptions
 ): void {
   log.info(
     filePipelinePanel("FILE PIPELINE · index · queued", contentId, {
       provider: env.EMBEDDING_PROVIDER,
       embedding: embeddingRuntimeLabel(),
       cleanedChars: cleanedText.length,
+      pdfFigureChunks: options?.pdfImageItems?.length ?? 0,
       next: "setImmediate → chunk → embed → replaceContentChunks (pg + qdrant)",
       ...qdrantPipelineFields(),
     })
   );
   setImmediate(() => {
-    void indexExtractedTextForFile(contentId, cleanedText).catch((e) => {
+    void indexExtractedContentForFile(contentId, cleanedText, options).catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       const full = inspect(e, {
         depth: 12,

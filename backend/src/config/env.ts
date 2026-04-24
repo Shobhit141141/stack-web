@@ -146,6 +146,13 @@ export const env = {
 
   START_URL_INGEST_WORKER:
     process.env.START_URL_INGEST_WORKER === "false" ? false : true,
+
+  /** When false, skip embedded-image extraction for PDFs (text indexing unchanged). */
+  PDF_EMBEDDED_IMAGES_ENABLED:
+    process.env.PDF_EMBEDDED_IMAGES_ENABLED !== "false",
+
+  /** Override cache dir for extracted PDF images (default: `<cwd>/backend/.cache/pdf-extract`). */
+  PDF_EXTRACT_CACHE_DIR: process.env.PDF_EXTRACT_CACHE_DIR?.trim() || undefined,
 } as const;
 
 export function hasEmbeddingApiKey(): boolean {

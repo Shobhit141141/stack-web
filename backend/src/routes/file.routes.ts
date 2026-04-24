@@ -25,6 +25,11 @@ router.delete("/:id", requireAuth, fileController.deleteFile);
 router.get("/:id/summary/speech", requireAuth, fileController.getFileSummarySpeechById);
 router.get("/:id/download", requireAuth, fileController.downloadFileByIdAttachment);
 router.get("/:id/thumbnail", requireAuth, fileController.getFileThumbnailById);
+router.get(
+  "/:id/pdf-extraction/:slot",
+  requireAuth,
+  fileController.getPdfExtractionPreviewById
+);
 router.get("/:id", requireAuth, fileController.getFileById);
 
 export default router;

@@ -20,6 +20,7 @@
   "dependencies": {
     "@google/genai": "^1.48.0",
     "@mozilla/readability": "^0.6.0",
+    "@napi-rs/canvas": "^0.1.99",
     "@prisma/client": "^6.19.0",
     "@qdrant/js-client-rest": "^1.17.0",
     "@supabase/supabase-js": "^2.49.1",
@@ -36,6 +37,7 @@
     "pdf-parse": "^2.4.5",
     "sharp": "^0.34.5",
     "tiktoken": "^1.0.22",
+    "unpdf": "^1.6.0",
     "winston": "^3.17.0"
   },
   "devDependencies": {

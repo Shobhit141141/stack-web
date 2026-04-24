@@ -513,6 +513,7 @@ export async function processUrlIngestJob(
     if (uploadMime === PDF_MIME || uploadMime === DOCX_MIME) {
       scheduleExtractionAfterUpload({
         contentId,
+        fileId: file.id,
         buffer: uploadBody,
         mimeType: uploadMime,
         originalName,

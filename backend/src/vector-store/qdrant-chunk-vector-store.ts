@@ -5,10 +5,20 @@ import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
 import { assertEmbeddingShape } from "./embedding.util.js";
 import type {
+  ChunkVectorContentType,
   ChunkVectorRecord,
   ChunkVectorSearchRow,
   ChunkVectorStore,
 } from "./chunk-vector-store.interface.js";
+
+const CHUNK_TYPES: readonly ChunkVectorContentType[] = ["text", "table", "image"];
+
+function parseChunkContentType(v: unknown): ChunkVectorContentType {
+  if (typeof v === "string" && (CHUNK_TYPES as readonly string[]).includes(v)) {
+    return v as ChunkVectorContentType;
+  }
+  return "text";
+}
 
 const BATCH = 128;
 
@@ -155,16 +165,24 @@ export class QdrantChunkVectorStore implements ChunkVectorStore {
       const tBatch0 = Date.now();
       await this.client.upsert(this.collection, {
         wait: true,
-        points: slice.map((c) => ({
-          id: c.id,
-          vector: c.embedding,
-          payload: {
+        points: slice.map((c) => {
+          const chunkType = c.chunkContentType ?? "text";
+          const base = {
             content_id: c.contentId,
             chunk_index: c.chunkIndex,
             token_count: c.tokenCount,
             content: sanitizePayloadText(c.content),
-          },
-        })),
+            chunk_type: chunkType,
+          };
+          return {
+            id: c.id,
+            vector: c.embedding,
+            payload:
+              c.chunkMeta !== undefined && c.chunkMeta !== null
+                ? { ...base, chunk_meta: c.chunkMeta }
+                : base,
+          };
+        }),
       });
       const tBatch1 = Date.now();
       const idxRange = `${slice[0]?.chunkIndex ?? i}–${slice[slice.length - 1]?.chunkIndex ?? i + slice.length - 1}`;
@@ -224,11 +242,17 @@ export class QdrantChunkVectorStore implements ChunkVectorStore {
       }
       // Qdrant Cosine: hit.score = cosine similarity (0-1, higher = more similar)
       // Convert to distance for downstream compatibility (lower = more similar)
+      const chunkMetaRaw = p["chunk_meta"];
+      const chunkMeta =
+        chunkMetaRaw === undefined || chunkMetaRaw === null ? undefined : chunkMetaRaw;
+
       return {
         contentId,
         content,
         chunkIndex,
         distance: 1 - hit.score,
+        chunkContentType: parseChunkContentType(p["chunk_type"]),
+        ...(chunkMeta !== undefined ? { chunkMeta } : {}),
       };
     });
   }

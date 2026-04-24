@@ -1,5 +1,7 @@
 import { apiFetchOkAuthed } from '../lib/api-authed'
 
+export type SearchChunkType = 'text' | 'table' | 'image'
+
 export type SearchResult = {
   contentId: string
   fileId: string
@@ -8,6 +10,11 @@ export type SearchResult = {
   createdAt: string
   score: number
   snippet: string
+  chunkType?: SearchChunkType
+  previewFileId?: string
+  /** Slot for `GET /files/:fileId/pdf-extraction/:slot` (same fileId as result). */
+  previewPdfExtraction?: { slot: number }
+  chunkSource?: string
 }
 
 export async function semanticSearch(

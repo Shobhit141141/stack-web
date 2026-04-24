@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HiOutlineMagnifyingGlass } from 'react-icons/hi2'
 import { semanticSearch, type SearchResult } from '../services/search-service'
 import { openKnownFile } from '../hooks/use-open-file'
 import { useImageThumbnailUrls } from '../hooks/use-image-thumbnail-urls'
+import { usePdfExtractionPreviewUrls } from '../hooks/use-pdf-extraction-preview-urls'
 import { fileIcon } from '../utils/file-display'
 import { Skeleton } from './ui/skeleton'
 
@@ -13,12 +14,33 @@ export function SearchBar() {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
-  const thumbnailUrls = useImageThumbnailUrls(
-    results.map((r) => ({
-      fileId: r.fileId,
-      type: r.type,
-    })),
+  const thumbnailInputs = useMemo(() => {
+    const rows: Array<{ fileId: string; type: string; thumbnailUrl: null }> = []
+    const seen = new Set<string>()
+    for (const r of results) {
+      if (!seen.has(r.fileId)) {
+        seen.add(r.fileId)
+        rows.push({ fileId: r.fileId, type: r.type, thumbnailUrl: null })
+      }
+      if (r.previewFileId && !seen.has(r.previewFileId)) {
+        seen.add(r.previewFileId)
+        rows.push({ fileId: r.previewFileId, type: 'image', thumbnailUrl: null })
+      }
+    }
+    return rows
+  }, [results])
+  const thumbnailUrls = useImageThumbnailUrls(thumbnailInputs)
+  const pdfExtractionRefs = useMemo(
+    () =>
+      results
+        .filter((r) => r.previewPdfExtraction != null)
+        .map((r) => ({
+          fileId: r.fileId,
+          slot: r.previewPdfExtraction!.slot,
+        })),
+    [results],
   )
+  const pdfExtractionUrls = usePdfExtractionPreviewUrls(pdfExtractionRefs)
 
   const search = useCallback(async (q: string) => {
     if (q.trim().length < 2) {
@@ -120,7 +142,28 @@ export function SearchBar() {
 
           {!loading && results.length > 0 && (
             <div className="max-h-80 overflow-y-auto py-1">
-              {results.map((r) => (
+              {results.map((r) => {
+                const pdfThumb =
+                  r.previewPdfExtraction != null
+                    ? pdfExtractionUrls.get(`${r.fileId}:${r.previewPdfExtraction.slot}`)
+                    : undefined
+                const thumbSrc =
+                  pdfThumb ??
+                  (r.previewFileId ? thumbnailUrls.get(r.previewFileId) : undefined) ??
+                  thumbnailUrls.get(r.fileId) ??
+                  fileIcon(r.type)
+                const hasThumb = Boolean(
+                  pdfThumb ||
+                    (r.previewFileId && thumbnailUrls.get(r.previewFileId)) ||
+                    thumbnailUrls.get(r.fileId),
+                )
+                const imageBadgeLabel =
+                  r.chunkType === 'image' && r.chunkSource === 'pdf_embedded_image'
+                    ? 'diagram'
+                    : r.chunkType === 'image'
+                      ? 'image'
+                      : null
+                return (
                 <button
                   key={`${r.contentId}-${r.fileId}`}
                   type="button"
@@ -128,24 +171,40 @@ export function SearchBar() {
                   className="flex w-full cursor-pointer items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-neutral-50"
                 >
                   <img
-                    src={
-                      thumbnailUrls.get(r.fileId) ?? fileIcon(r.type)
-                    }
+                    src={thumbSrc}
                     alt=""
                     className={`mt-0.5 h-8 w-8 shrink-0 rounded-md ${
-                      thumbnailUrls.get(r.fileId) ? 'object-cover' : ''
+                      hasThumb ? 'object-cover' : ''
                     }`}
                   />
                   <div className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-neutral-900">
-                      {r.fileName}
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="block truncate text-sm font-medium text-neutral-900">
+                        {r.fileName}
+                      </span>
+                      {r.chunkType === 'table' ? (
+                        <span className="shrink-0 rounded bg-neutral-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-600">
+                          Table
+                        </span>
+                      ) : null}
+                      {imageBadgeLabel === 'diagram' ? (
+                        <span className="shrink-0 rounded bg-neutral-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-600">
+                          Diagram
+                        </span>
+                      ) : null}
+                      {imageBadgeLabel === 'image' ? (
+                        <span className="shrink-0 rounded bg-neutral-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-600">
+                          Image
+                        </span>
+                      ) : null}
                     </span>
                     <span className="mt-0.5 line-clamp-2 text-xs text-neutral-500">
                       {r.snippet}
                     </span>
                   </div>
                 </button>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

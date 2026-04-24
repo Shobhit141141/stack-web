@@ -75,3 +75,8 @@ export function logSemanticSearchDebug(fields: {
     () => {}
   );
 }
+
+/** Append-only trace for PDF embedded-image extract → caption → preview → index (see `logs/pdf-visual-pipeline.log`). */
+export function logPdfVisualPipeline(fields: Record<string, unknown>): void {
+  void appendDebugLogFile("pdf-visual-pipeline.log", "PDF VISUAL PIPELINE", fields).catch(() => {});
+}

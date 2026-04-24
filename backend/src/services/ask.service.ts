@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import type { Prisma } from "@prisma/client";
 import { env, ragCompletionModelDefault } from "../config/env.js";
 import { buildAskSystemInstruction, buildAskUserMessage } from "../rag/prompt.js";
 import * as embeddingService from "./embedding.service.js";
@@ -10,11 +11,18 @@ import * as conversationRepository from "../repositories/conversation.repository
 import { askApiPanel } from "../utils/ask-log.util.js";
 import { log } from "../utils/logger/index.js";
 import { logRagDebug } from "../utils/debug-log.util.js";
+import { previewFileIdFromChunkMeta } from "../utils/chunk-meta.util.js";
+
+export type AskChunkContentType = "text" | "table" | "image";
 
 export type AskSource = {
   fileId: string;
   fileName: string;
   snippet: string;
+  chunkType?: AskChunkContentType;
+  chunkMeta?: Prisma.JsonValue;
+  /** When set (usually from `chunk_meta.previewFileId`), UI loads thumbnail for this file id. */
+  previewFileId?: string;
 };
 
 export type AskResult = {
@@ -24,6 +32,33 @@ export type AskResult = {
 };
 
 type ChunkHit = searchRepository.ChunkSearchRow & { score: number };
+
+/** Prefer non-text chunks first so table/image captions stay in context when scores are competitive. */
+function selectChunksWithTypeDiversity(sortedByScore: ChunkHit[], max: number): ChunkHit[] {
+  if (max <= 0) return [];
+  if (sortedByScore.length <= max) return sortedByScore;
+
+  const key = (h: ChunkHit) => `${h.contentId}:${h.chunkIndex}`;
+  const nonText = sortedByScore.filter((h) => (h.chunkContentType ?? "text") !== "text");
+  const out: ChunkHit[] = [];
+  const seen = new Set<string>();
+
+  for (const h of nonText) {
+    if (out.length >= max) break;
+    const k = key(h);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(h);
+  }
+  for (const h of sortedByScore) {
+    if (out.length >= max) break;
+    const k = key(h);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(h);
+  }
+  return out;
+}
 
 const SNIPPET_MAX_CHARS = 400;
 const HISTORY_TURNS_MAX = 12;
@@ -748,7 +783,7 @@ export async function askUserFiles(params: {
   // - chunks: an array of chunks that belong to the pack, sorted by score in descending order, sliced to maxCp
   for (const [contentId, arr] of byContent) {
     arr.sort((a, b) => b.score - a.score);
-    const chunks = arr.slice(0, maxCp);
+    const chunks = selectChunksWithTypeDiversity(arr, maxCp);
     const bestScore = chunks[0]?.score ?? 0;
     packs.push({ contentId, bestScore, chunks });
   }
@@ -990,11 +1025,20 @@ export async function askUserFiles(params: {
     const file = group[0];
     if (!file) continue;
     for (const ch of p.chunks) {
-      sources.push({
+      const src: AskSource = {
         fileId: file.id,
         fileName: file.originalName,
         snippet: truncateSnippet(ch.content),
-      });
+        chunkType: ch.chunkContentType,
+      };
+      if (ch.chunkMeta !== undefined) {
+        src.chunkMeta = ch.chunkMeta as Prisma.JsonValue;
+      }
+      const previewId = previewFileIdFromChunkMeta(ch.chunkMeta);
+      if (previewId) {
+        src.previewFileId = previewId;
+      }
+      sources.push(src);
     }
   }
 

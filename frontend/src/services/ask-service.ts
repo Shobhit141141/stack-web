@@ -1,9 +1,15 @@
 import { apiFetchOkAuthed } from '../lib/api-authed'
 
+export type AskChunkContentType = 'text' | 'table' | 'image'
+
 export type AskSource = {
   fileId: string
   fileName: string
   snippet: string
+  chunkType?: AskChunkContentType
+  chunkMeta?: unknown
+  /** Optional asset id for thumbnail (e.g. `chunk_meta.previewFileId` from indexing). */
+  previewFileId?: string
 }
 
 export type QuizQuestionOption = {

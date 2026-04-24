@@ -8,6 +8,11 @@ import { publicFileTypeLabel } from "../utils/file-query-parser.js";
 import { log } from "../utils/logger/index.js";
 import { searchApiPanel } from "../utils/search-log.util.js";
 import { logSemanticSearchDebug } from "../utils/debug-log.util.js";
+import {
+  previewFileIdFromChunkMeta,
+  pdfExtractionRefFromChunkMeta,
+} from "../utils/chunk-meta.util.js";
+import type { ChunkVectorContentType } from "../vector-store/chunk-vector-store.interface.js";
 
 const NEAREST_CHUNK_LIMIT = 30;
 const MAX_RESULTS = 10;
@@ -43,6 +48,14 @@ export type SemanticSearchResultItem = {
   createdAt: string;
   score: number;
   snippet: string;
+  /** Chunk modality for the hit used for this snippet (merged with file `type` in UI). */
+  chunkType?: ChunkVectorContentType;
+  /** Optional asset id for thumbnail when the hit is an image/table row with `chunk_meta.previewFileId`. */
+  previewFileId?: string;
+  /** Embedded PDF figure preview (`GET /files/:fileId/pdf-extraction/:slot`). */
+  previewPdfExtraction?: { slot: number };
+  /** When set (e.g. `pdf_embedded_image`), refines the chunk-type badge in search UI. */
+  chunkSource?: string;
   duplicates: Array<{
     fileId: string;
     fileName: string;
@@ -93,14 +106,37 @@ export async function semanticSearchUserFiles(
   // keep semantic threshold aligned with ask RAG retrieval so /search and /ask
   // return consistent matches for the same corpus/query.
   const minScore = env.RAG_MIN_CHUNK_SCORE;
-  const seen = new Map<string, { snippet: string; score: number }>();
+  const seen = new Map<
+    string,
+    {
+      snippet: string;
+      score: number;
+      chunkType: ChunkVectorContentType;
+      previewFileId?: string;
+      previewPdfExtraction?: { slot: number };
+      chunkSource?: string;
+    }
+  >();
   for (const row of chunks) {
     if (seen.has(row.contentId)) continue;
     const score = Math.max(0, 1 - row.distance);
     if (score < minScore) continue;
+    const previewFileId = previewFileIdFromChunkMeta(row.chunkMeta);
+    const pdfEx = pdfExtractionRefFromChunkMeta(row.chunkMeta);
+    const chunkSource =
+      row.chunkMeta !== undefined &&
+      row.chunkMeta !== null &&
+      typeof row.chunkMeta === "object" &&
+      !Array.isArray(row.chunkMeta)
+        ? (row.chunkMeta as Record<string, unknown>).source
+        : undefined;
     seen.set(row.contentId, {
       snippet: truncateSnippet(row.content),
       score,
+      chunkType: row.chunkContentType,
+      ...(previewFileId ? { previewFileId } : {}),
+      ...(pdfEx ? { previewPdfExtraction: { slot: pdfEx.slot } } : {}),
+      ...(typeof chunkSource === "string" ? { chunkSource } : {}),
     });
     if (seen.size >= MAX_RESULTS) break;
   }
@@ -111,9 +147,22 @@ export async function semanticSearchUserFiles(
     for (const row of chunks) {
       if (seen.has(row.contentId)) continue;
       const score = Math.max(0, 1 - row.distance);
+      const previewFileId = previewFileIdFromChunkMeta(row.chunkMeta);
+      const pdfEx = pdfExtractionRefFromChunkMeta(row.chunkMeta);
+      const chunkSource =
+        row.chunkMeta !== undefined &&
+        row.chunkMeta !== null &&
+        typeof row.chunkMeta === "object" &&
+        !Array.isArray(row.chunkMeta)
+          ? (row.chunkMeta as Record<string, unknown>).source
+          : undefined;
       seen.set(row.contentId, {
         snippet: truncateSnippet(row.content),
         score,
+        chunkType: row.chunkContentType,
+        ...(previewFileId ? { previewFileId } : {}),
+        ...(pdfEx ? { previewPdfExtraction: { slot: pdfEx.slot } } : {}),
+        ...(typeof chunkSource === "string" ? { chunkSource } : {}),
       });
       if (seen.size >= MAX_RESULTS) break;
     }
@@ -189,6 +238,12 @@ export async function semanticSearchUserFiles(
       createdAt: primary.createdAt.toISOString(),
       score: match.score,
       snippet: match.snippet,
+      chunkType: match.chunkType,
+      ...(match.previewFileId ? { previewFileId: match.previewFileId } : {}),
+      ...(match.previewPdfExtraction
+        ? { previewPdfExtraction: match.previewPdfExtraction }
+        : {}),
+      ...(match.chunkSource ? { chunkSource: match.chunkSource } : {}),
       duplicates: group.slice(1).map((f) => ({
         fileId: f.id,
         fileName: f.originalName,

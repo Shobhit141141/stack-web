@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { ChunkContentType, Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
 import { getChunkVectorStore } from "../vector-store/index.js";
 import type { ChunkVectorRecord } from "../vector-store/chunk-vector-store.interface.js";
@@ -11,6 +11,8 @@ export type ChunkInsertRow = {
   embedding: number[];
   chunkIndex: number;
   tokenCount: number;
+  chunkContentType?: ChunkContentType;
+  chunkMeta?: Prisma.JsonValue | null;
 };
 
 function sanitizeChunkContentForPg(text: string): string {
@@ -31,15 +33,19 @@ export async function replaceContentChunks(
     `;
     if (rows.length === 0) return;
 
-    const fragments = rows.map(
-      (r, i) =>
-        Prisma.sql`(${ids[i]}::uuid, ${contentId}::uuid, ${sanitizeChunkContentForPg(
-          r.content
-        )}, ${r.chunkIndex}::int, ${r.tokenCount}::int)`
-    );
+    const fragments = rows.map((r, i) => {
+      const ct = r.chunkContentType ?? ChunkContentType.text;
+      const metaSql =
+        r.chunkMeta === undefined || r.chunkMeta === null
+          ? Prisma.sql`NULL::jsonb`
+          : Prisma.sql`CAST(${JSON.stringify(r.chunkMeta)} AS jsonb)`;
+      return Prisma.sql`(${ids[i]}::uuid, ${contentId}::uuid, ${sanitizeChunkContentForPg(
+        r.content
+      )}, ${r.chunkIndex}::int, ${r.tokenCount}::int, ${ct}::"ChunkContentType", ${metaSql})`;
+    });
 
     await tx.$executeRaw`
-      INSERT INTO "file_chunks" ("id", "content_id", "content", "chunk_index", "token_count")
+      INSERT INTO "file_chunks" ("id", "content_id", "content", "chunk_index", "token_count", "chunk_type", "chunk_meta")
       VALUES ${Prisma.join(fragments)}
     `;
   });
@@ -59,6 +65,8 @@ export async function replaceContentChunks(
     chunkIndex: r.chunkIndex,
     tokenCount: r.tokenCount,
     embedding: r.embedding,
+    chunkContentType: r.chunkContentType ?? ChunkContentType.text,
+    chunkMeta: r.chunkMeta === undefined ? null : r.chunkMeta,
   }));
 
   await getChunkVectorStore().replaceContentChunks(contentId, vectorRows);

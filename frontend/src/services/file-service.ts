@@ -48,6 +48,13 @@ export async function fetchFileThumbnailUrl(fileId: string): Promise<string> {
   return body.signedUrl
 }
 
+/** Authenticated fetch of embedded PDF figure webp; caller should revoke the object URL when done. */
+export async function fetchPdfExtractionBlobUrl(fileId: string, slot: number): Promise<string> {
+  const res = await apiFetchOkAuthed(`/files/${fileId}/pdf-extraction/${slot}`)
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
+}
+
 function filenameFromContentDisposition(header: string | null): string | undefined {
   if (!header) return undefined
   const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)

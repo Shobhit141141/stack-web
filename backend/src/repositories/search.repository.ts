@@ -1,12 +1,8 @@
 import * as fileRepository from "./file.repository.js";
 import { getChunkVectorStore } from "../vector-store/index.js";
+import type { ChunkVectorSearchRow } from "../vector-store/chunk-vector-store.interface.js";
 
-export type ChunkSearchRow = {
-  contentId: string;
-  content: string;
-  chunkIndex: number;
-  distance: number;
-};
+export type ChunkSearchRow = ChunkVectorSearchRow;
 
 export async function findNearestChunksForUser(params: {
   userId: string;

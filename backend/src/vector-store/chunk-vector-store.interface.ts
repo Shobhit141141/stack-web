@@ -1,5 +1,7 @@
 // abstraction for chunk embeddings: pluggable vector db (qdrant) behind one interface
 
+export type ChunkVectorContentType = "text" | "table" | "image";
+
 export type ChunkVectorRecord = {
   id: string;
   contentId: string;
@@ -7,6 +9,8 @@ export type ChunkVectorRecord = {
   chunkIndex: number;
   tokenCount: number;
   embedding: number[];
+  chunkContentType?: ChunkVectorContentType;
+  chunkMeta?: unknown | null;
 };
 
 export type ChunkVectorSearchRow = {
@@ -14,6 +18,8 @@ export type ChunkVectorSearchRow = {
   content: string;
   chunkIndex: number;
   distance: number;
+  chunkContentType: ChunkVectorContentType;
+  chunkMeta?: unknown;
 };
 
 export interface ChunkVectorStore {

@@ -4,6 +4,7 @@ import { HiMiniPause, HiMiniPlay } from 'react-icons/hi2'
 import { fileIcon } from '../../utils/file-display'
 import { openKnownFile } from '../../hooks/use-open-file'
 import { useImageThumbnailUrls } from '../../hooks/use-image-thumbnail-urls'
+import { usePdfExtractionPreviewUrls } from '../../hooks/use-pdf-extraction-preview-urls'
 import type { AskSource } from '../../services/ask-service'
 import { fetchFileSummarySpeechAudio } from '../../services/file-service'
 
@@ -76,6 +77,79 @@ function dedupeSources(sources: AskSource[]): AskSource[] {
   return [...byId.values()]
 }
 
+function collectPdfExtractionRefs(sources: AskSource[]): Array<{ fileId: string; slot: number }> {
+  const out: Array<{ fileId: string; slot: number }> = []
+  const seen = new Set<string>()
+  for (const s of sources) {
+    const m = s.chunkMeta
+    if (!m || typeof m !== 'object' || Array.isArray(m)) continue
+    const pe = (m as Record<string, unknown>).pdfExtraction
+    if (!pe || typeof pe !== 'object' || Array.isArray(pe)) continue
+    const slot = (pe as Record<string, unknown>).slot
+    if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0) continue
+    const k = `${s.fileId}:${slot}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push({ fileId: s.fileId, slot })
+  }
+  return out
+}
+
+function resolveSourceThumbnailUrl(
+  urls: Map<string, string>,
+  sources: AskSource[],
+  fileId: string | undefined,
+  pdfUrls: Map<string, string>,
+): string | undefined {
+  if (!fileId) return undefined
+  for (const s of sources) {
+    if (s.fileId !== fileId) continue
+    const m = s.chunkMeta
+    if (m && typeof m === 'object' && !Array.isArray(m)) {
+      const pe = (m as Record<string, unknown>).pdfExtraction
+      if (pe && typeof pe === 'object' && !Array.isArray(pe)) {
+        const slot = (pe as Record<string, unknown>).slot
+        if (typeof slot === 'number' && Number.isInteger(slot)) {
+          const u = pdfUrls.get(`${s.fileId}:${slot}`)
+          if (u) return u
+        }
+      }
+    }
+    if (s.previewFileId) {
+      const u = urls.get(s.previewFileId)
+      if (u) return u
+    }
+  }
+  return urls.get(fileId)
+}
+
+/** Badge for source row: PDF figures vs generic image chunks vs tables. */
+function sourceChunkBadge(
+  allSources: AskSource[],
+  fileId: string,
+): 'table' | 'diagram' | 'image' | undefined {
+  let hasTable = false
+  let hasDiagram = false
+  let hasImage = false
+  for (const s of allSources) {
+    if (s.fileId !== fileId) continue
+    const t = s.chunkType ?? 'text'
+    if (t === 'table') hasTable = true
+    if (t === 'image') {
+      const src =
+        s.chunkMeta && typeof s.chunkMeta === 'object' && !Array.isArray(s.chunkMeta)
+          ? (s.chunkMeta as Record<string, unknown>).source
+          : undefined
+      if (src === 'pdf_embedded_image') hasDiagram = true
+      else hasImage = true
+    }
+  }
+  if (hasDiagram) return 'diagram'
+  if (hasTable) return 'table'
+  if (hasImage) return 'image'
+  return undefined
+}
+
 function FileRefChip({
   displayName,
   fileId,
@@ -132,14 +206,28 @@ type Props = {
 export function ChatAnswerContent({ text, sources }: Props) {
   const nameToId = useMemo(() => buildNameToFileId(sources), [sources])
   const segments = useMemo(() => parseAnswerIntoSegments(text), [text])
-  const thumbnailUrls = useImageThumbnailUrls(
-    sources.map((s) => ({
-      fileId: s.fileId,
-      // use filename as type signal for image extension detection in this hook flow
-      type: isImageFileName(s.fileName) ? 'image' : 'file',
-      thumbnailUrl: null,
-    })),
-  )
+  const thumbnailInputs = useMemo(() => {
+    const rows: Array<{ fileId: string; type: string; thumbnailUrl: null }> = []
+    const seen = new Set<string>()
+    for (const s of sources) {
+      if (!seen.has(s.fileId)) {
+        seen.add(s.fileId)
+        rows.push({
+          fileId: s.fileId,
+          type: isImageFileName(s.fileName) ? 'image' : 'file',
+          thumbnailUrl: null,
+        })
+      }
+      if (s.previewFileId && !seen.has(s.previewFileId)) {
+        seen.add(s.previewFileId)
+        rows.push({ fileId: s.previewFileId, type: 'image', thumbnailUrl: null })
+      }
+    }
+    return rows
+  }, [sources])
+  const thumbnailUrls = useImageThumbnailUrls(thumbnailInputs)
+  const pdfExtractionRefs = useMemo(() => collectPdfExtractionRefs(sources), [sources])
+  const pdfExtractionUrls = usePdfExtractionPreviewUrls(pdfExtractionRefs)
 
   if (segments.length === 0) {
     return <span className="whitespace-pre-wrap">{text}</span>
@@ -157,7 +245,11 @@ export function ChatAnswerContent({ text, sources }: Props) {
             key={i}
             displayName={seg.displayName}
             fileId={id}
-            previewUrl={id ? thumbnailUrls.get(id) : undefined}
+            previewUrl={
+              id
+                ? resolveSourceThumbnailUrl(thumbnailUrls, sources, id, pdfExtractionUrls)
+                : undefined
+            }
             inlineInText
           />
         )
@@ -169,13 +261,29 @@ export function ChatAnswerContent({ text, sources }: Props) {
 // unique source files as chips below the answer (dedup by fileId)
 export function ChatSourceFileChips({ sources }: { sources: AskSource[] }) {
   const unique = useMemo(() => dedupeSources(sources), [sources])
-  const thumbnailUrls = useImageThumbnailUrls(
-    unique.map((s) => ({
-      fileId: s.fileId,
-      type: isImageFileName(s.fileName) ? 'image' : 'file',
-      thumbnailUrl: null,
-    })),
-  )
+  const thumbnailInputs = useMemo(() => {
+    const rows: Array<{ fileId: string; type: string; thumbnailUrl: null }> = []
+    const seen = new Set<string>()
+    for (const s of unique) {
+      if (!seen.has(s.fileId)) {
+        seen.add(s.fileId)
+        rows.push({
+          fileId: s.fileId,
+          type: isImageFileName(s.fileName) ? 'image' : 'file',
+          thumbnailUrl: null,
+        })
+      }
+      const preview = sources.find((x) => x.fileId === s.fileId && x.previewFileId)?.previewFileId
+      if (preview && !seen.has(preview)) {
+        seen.add(preview)
+        rows.push({ fileId: preview, type: 'image', thumbnailUrl: null })
+      }
+    }
+    return rows
+  }, [unique, sources])
+  const thumbnailUrls = useImageThumbnailUrls(thumbnailInputs)
+  const pdfExtractionRefs = useMemo(() => collectPdfExtractionRefs(sources), [sources])
+  const pdfExtractionUrls = usePdfExtractionPreviewUrls(pdfExtractionRefs)
 
   if (unique.length === 0) return null
 
@@ -183,14 +291,38 @@ export function ChatSourceFileChips({ sources }: { sources: AskSource[] }) {
     <div className="mt-3 w-full border-t border-neutral-200 pt-3">
       <p className="mb-2 text-xs font-medium text-neutral-500">Sources</p>
       <div className="flex flex-wrap items-center gap-2">
-        {unique.map((s) => (
-          <FileRefChip
-            key={s.fileId}
-            displayName={s.fileName}
-            fileId={s.fileId}
-            previewUrl={thumbnailUrls.get(s.fileId)}
-          />
-        ))}
+        {unique.map((s) => {
+          const badge = sourceChunkBadge(sources, s.fileId)
+          return (
+            <span key={s.fileId} className="inline-flex items-center gap-1">
+              <FileRefChip
+                displayName={s.fileName}
+                fileId={s.fileId}
+                previewUrl={resolveSourceThumbnailUrl(
+                  thumbnailUrls,
+                  sources,
+                  s.fileId,
+                  pdfExtractionUrls,
+                )}
+              />
+              {badge === 'table' ? (
+                <span className="rounded bg-neutral-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-600">
+                  Table
+                </span>
+              ) : null}
+              {badge === 'diagram' ? (
+                <span className="rounded bg-neutral-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-600">
+                  Diagram
+                </span>
+              ) : null}
+              {badge === 'image' ? (
+                <span className="rounded bg-neutral-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-600">
+                  Image
+                </span>
+              ) : null}
+            </span>
+          )
+        })}
       </div>
     </div>
   )

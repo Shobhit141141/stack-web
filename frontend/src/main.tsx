@@ -4,10 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
 import './index.css'
-import { prefetchVapiSdk } from './lib/vapi-prefetch'
 import { router } from './router'
-
-prefetchVapiSdk()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

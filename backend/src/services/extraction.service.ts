@@ -11,6 +11,8 @@ import {
 import { log } from "../utils/logger/index.js";
 import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
 import { scheduleContentSummaryGeneration } from "./summary.service.js";
+import { buildPdfImageIndexItems } from "./pdf-embedded-images.service.js";
+import { logPdfVisualPipeline } from "../utils/debug-log.util.js";
 
 export type ExtractResult = {
   text: string;
@@ -31,7 +33,6 @@ function excerptForLog(text: string): string {
   if (text.length <= EXTRACTION_LOG_TEXT_MAX) return text;
   return `${text.slice(0, EXTRACTION_LOG_TEXT_MAX)}… [truncated ${text.length - EXTRACTION_LOG_TEXT_MAX} chars]`;
 }
-
 
 export async function extractText(file: {
   buffer: Buffer;
@@ -85,9 +86,9 @@ export async function extractText(file: {
   };
 }
 
-
 export function scheduleExtractionAfterUpload(ctx: {
   contentId: string;
+  fileId: string;
   buffer: Buffer;
   mimeType: string;
   originalName: string;
@@ -107,16 +108,18 @@ export function scheduleExtractionAfterUpload(ctx: {
       mime: ctx.mimeType,
       originalName: ctx.originalName,
       bufferBytes: ctx.buffer.length,
+      fileId: ctx.fileId,
     })
   );
 
   setImmediate(() => {
-    extractText({
-      buffer: ctx.buffer,
-      mimeType: ctx.mimeType,
-      originalName: ctx.originalName,
-    })
-      .then((r) => {
+    void (async () => {
+      try {
+        const r = await extractText({
+          buffer: ctx.buffer,
+          mimeType: ctx.mimeType,
+          originalName: ctx.originalName,
+        });
         log.info(
           filePipelinePanel("FILE PIPELINE · extract · done", ctx.contentId, {
             cleanedChars: r.cleanedText.length,
@@ -135,19 +138,62 @@ export function scheduleExtractionAfterUpload(ctx: {
             FILE_PIPELINE_RULE,
           ].join("\n")
         );
-        scheduleDocumentIndexAfterExtraction(ctx.contentId, r.cleanedText);
-        scheduleContentSummaryGeneration({
-          contentId: ctx.contentId,
-          extractedText: r.cleanedText,
+
+        let pdfImageItems =
+          ctx.mimeType === PDF_MIME
+            ? await buildPdfImageIndexItems({
+                buffer: ctx.buffer,
+                contentId: ctx.contentId,
+                parentFileId: ctx.fileId,
+                originalName: ctx.originalName,
+                // Required fallback: if no embedded rasters and no text, render page(s) then caption.
+                fallbackWhenNoRasters: r.cleanedText.trim().length === 0,
+                fallbackMaxPages: 1,
+              })
+            : undefined;
+
+        scheduleDocumentIndexAfterExtraction(ctx.contentId, r.cleanedText, {
+          pdfImageItems,
         });
-      })
-      .catch((e) => {
+
+        if (ctx.mimeType === PDF_MIME) {
+          logPdfVisualPipeline({
+            phase: "extract_orchestration_done",
+            contentId: ctx.contentId,
+            fileId: ctx.fileId,
+            originalName: ctx.originalName,
+            cleanedTextChars: r.cleanedText.length,
+            likelyScanned: r.likelyScanned,
+            ocrUsed: r.ocrUsed,
+            pdfFigureChunks: pdfImageItems?.length ?? 0,
+          });
+        }
+
+        const summaryBase = r.cleanedText.trim()
+          ? r.cleanedText
+          : (pdfImageItems?.map((i) => i.caption).join("\n\n") ?? "");
+        if (summaryBase.trim()) {
+          scheduleContentSummaryGeneration({
+            contentId: ctx.contentId,
+            extractedText: summaryBase,
+          });
+        }
+      } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         log.warn(
           filePipelinePanel("FILE PIPELINE · extract · failed", ctx.contentId, {
             error: msg,
           })
         );
-      });
+        logPdfVisualPipeline({
+          phase: "extraction_job_failed",
+          contentId: ctx.contentId,
+          fileId: ctx.fileId,
+          mimeType: ctx.mimeType,
+          originalName: ctx.originalName,
+          error: msg,
+        });
+      }
+    })();
   });
 }

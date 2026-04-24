@@ -12,6 +12,7 @@ import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.j
 import { scheduleContentSummaryGeneration } from "./summary.service.js";
 
 const IMAGE_DESC_MAX_CHARS = 4_000;
+const PDF_FIGURE_CAPTION_MAX_CHARS = 600;
 
 // builds a concise instruction for semantic indexing text from an image.
 function imageDescriptionSystemInstruction(): string {
@@ -37,6 +38,57 @@ function normalizeImageDescription(text: string): string {
   if (!cleaned) return "";
   if (cleaned.length <= IMAGE_DESC_MAX_CHARS) return cleaned;
   return cleaned.slice(0, IMAGE_DESC_MAX_CHARS).trimEnd();
+}
+
+function pdfFigureCaptionSystemInstruction(): string {
+  return [
+    "You describe one figure or photo taken from a PDF page for search indexing.",
+    "Reply with 1–2 short sentences in plain English: what it shows, key structures, and any readable labels.",
+    "Do not use markdown, bullets, or headings.",
+  ].join(" ");
+}
+
+function normalizePdfFigureCaption(text: string): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  if (cleaned.length <= PDF_FIGURE_CAPTION_MAX_CHARS) return cleaned;
+  return cleaned.slice(0, PDF_FIGURE_CAPTION_MAX_CHARS).trimEnd();
+}
+
+/** Vision caption for an embedded PDF image (short, for text embedding). */
+export async function generatePdfEmbeddedImageCaption(params: {
+  pngBuffer: Buffer;
+  originalName: string;
+  page: number;
+  index: number;
+}): Promise<string> {
+  const systemInstruction = pdfFigureCaptionSystemInstruction();
+  const userMessage = [
+    `PDF: ${params.originalName}`,
+    `Page ${params.page}, embedded image #${params.index + 1}.`,
+    "Describe what is shown.",
+  ].join("\n");
+  const mimeType = "image/png";
+  if (env.RAG_COMPLETION_PROVIDER === "google") {
+    const out = await googleDescribeImage({
+      model: env.GEMINI_CHAT_MODEL,
+      systemInstruction,
+      userMessage,
+      temperature: 0.2,
+      imageMimeType: mimeType,
+      imageBytes: params.pngBuffer,
+    });
+    return normalizePdfFigureCaption(out.text);
+  }
+  const out = await openaiDescribeImage({
+    model: env.OPENAI_CHAT_MODEL,
+    systemInstruction,
+    userMessage,
+    temperature: 0.2,
+    imageMimeType: mimeType,
+    imageBytes: params.pngBuffer,
+  });
+  return normalizePdfFigureCaption(out.text);
 }
 
 // generates searchable text from an image using the configured completion provider.

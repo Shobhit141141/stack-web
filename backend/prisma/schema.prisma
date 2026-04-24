@@ -21,6 +21,12 @@ enum ContentSummaryStatus {
   failed
 }
 
+enum ChunkContentType {
+  text
+  table
+  image
+}
+
 model User {
   id          String   @id @db.Uuid
   email       String   @unique
@@ -158,6 +164,8 @@ model FileChunk {
   content    String
   chunkIndex Int      @map("chunk_index")
   tokenCount Int      @map("token_count")
+  chunkContentType ChunkContentType @default(text) @map("chunk_type")
+  chunkMeta        Json?            @map("chunk_meta")
   createdAt  DateTime @default(now()) @map("created_at")
 
   contentRef Content @relation(fields: [contentId], references: [id], onDelete: Cascade)

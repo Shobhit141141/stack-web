@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -114,13 +113,6 @@ function extractModelOutputChunk(
 function isTranscriptMessage(msg: { type?: string }): boolean {
   const t = msg.type
   return t === 'transcript' || (typeof t === 'string' && t.startsWith('transcript'))
-}
-
-// opens system mic prompt early when allowed (no-op if api missing)
-async function primeMicrophonePermission(): Promise<void> {
-  if (!navigator.mediaDevices?.getUserMedia) return
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  for (const t of stream.getTracks()) t.stop()
 }
 
 export function useVapi(options?: { workspaceId?: string }) {
@@ -313,46 +305,21 @@ export function useVapi(options?: { workspaceId?: string }) {
     }
   }, [workspaceId, clearConnectTimers])
 
-  // mic prompt + join daily room in background so first tap is mostly unmute + ui
-  useEffect(() => {
-    if (!configured) return
-    let cancelled = false
-
-    void primeMicrophonePermission().catch(() => {
-      if (!cancelled) {
-        toast.error(
-          'Voice needs microphone access. Allow the prompt or enable the mic for this site in browser settings.',
-        )
-      }
-    })
-
-    void (async () => {
-      try {
-        await vapiInitPromiseRef.current
-      } catch {
-        return
-      }
-      if (cancelled) return
-      try {
-        await establishVapiSession({ background: true })
-      } catch (e) {
-        console.error('[voice] background session failed', e)
-      }
-    })()
-
-    return () => {
-      cancelled = true
+  const ensureVapiReady = useCallback(async () => {
+    if (!VAPI_PUBLIC_KEY) {
+      throw new Error('Missing VAPI public key')
     }
-  }, [configured, workspaceId, establishVapiSession])
-
-  useLayoutEffect(() => {
-    if (!VAPI_PUBLIC_KEY) return
-    let cancelled = false
-    let instanceWeOwn: (typeof vapiRef)['current'] = null
+    if (vapiRef.current) {
+      return vapiRef.current
+    }
+    if (vapiInitPromiseRef.current) {
+      await vapiInitPromiseRef.current
+      if (vapiRef.current) return vapiRef.current
+      throw new Error('Vapi SDK initialized but instance missing')
+    }
 
     const init = (async () => {
       const VapiCtor = await loadVapiSdkClass()
-      if (cancelled) return
       const vapi = new VapiCtor(VAPI_PUBLIC_KEY)
 
       vapi.on('call-start', () => {
@@ -562,43 +529,48 @@ export function useVapi(options?: { workspaceId?: string }) {
       }
       })
 
-      if (cancelled) {
+      vapiRef.current = vapi
+      return vapi
+    })()
+
+    vapiInitPromiseRef.current = init
+    try {
+      await init
+      if (vapiRef.current) return vapiRef.current
+      throw new Error('Vapi instance not available after init')
+    } finally {
+      // keep resolved promise for reuse; clear only on failure
+      if (!vapiRef.current) {
+        vapiInitPromiseRef.current = null
+      }
+    }
+  }, [VAPI_PUBLIC_KEY, clearConnectTimers, downloadReferredFile, workspaceId, copyReferredFile, deleteReferredFile])
+
+  useEffect(() => {
+    return () => {
+      clearConnectTimers()
+      const vapi = vapiRef.current
+      if (vapi) {
         try {
           void vapi.stop()
         } catch {
           // ignore
         }
-        return
       }
-      instanceWeOwn = vapi
-      vapiRef.current = vapi
-    })()
-
-    vapiInitPromiseRef.current = init
-
-    return () => {
-      cancelled = true
-      clearConnectTimers()
-      void init.finally(() => {
-        const owned = instanceWeOwn
-        if (owned && vapiRef.current === owned) {
-          try {
-            void owned.stop()
-          } catch {
-            // ignore
-          }
-          vapiRef.current = null
-        }
-      })
+      vapiRef.current = null
+      vapiInitPromiseRef.current = null
+      sessionAliveRef.current = false
     }
-  }, [VAPI_PUBLIC_KEY, clearConnectTimers, downloadReferredFile])
+  }, [clearConnectTimers])
 
   const start = useCallback(async () => {
     try {
-      await vapiInitPromiseRef.current
+      await ensureVapiReady()
     } catch (e) {
-      console.error('[voice] sdk init failed', e)
-      setLastConnectError('Voice failed to load. Check your network and refresh.')
+      console.error('[voice] mic/sdk init failed', e)
+      setLastConnectError(
+        'Voice failed to initialize. Check your network and try again.',
+      )
       setStatus('error')
       setTimeout(() => setStatus('idle'), 4000)
       return

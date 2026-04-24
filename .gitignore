@@ -13,6 +13,7 @@ temp*/
 # Backend
 backend/.env
 backend/temp*
+backend/.cache/
 
 # Frontend local env
 frontend/.env

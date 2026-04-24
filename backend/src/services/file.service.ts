@@ -22,6 +22,7 @@ import type { FileDbClient } from "../repositories/file.repository.js";
 import * as workspaceRepository from "../repositories/workspace.repository.js";
 import * as workspaceService from "./workspace.service.js";
 import * as storageService from "./storage.service.js";
+import * as pdfExtractStorage from "./pdf-extract-storage.service.js";
 import {
   thumbnailPathForMainStoragePath,
   tryBuildWebpThumbnail,
@@ -652,6 +653,26 @@ export async function deleteWorkspaceAndRelated(params: {
     params.userId
   );
   if (!ok) throw new HttpError(404, "Workspace not found");
+}
+
+/** Cached webp for an embedded PDF figure (see `pdf-embedded-images.service`). */
+export async function getUserPdfExtractionPreview(params: {
+  userId: string;
+  fileId: string;
+  slot: number;
+}): Promise<Buffer> {
+  if (!Number.isInteger(params.slot) || params.slot < 0) {
+    throw new HttpError(400, "Invalid extraction slot");
+  }
+  const row = await fileRepository.findFileByIdForUser(params.fileId, params.userId);
+  if (!row) {
+    throw new HttpError(404, "File not found");
+  }
+  const bytes = await pdfExtractStorage.readPdfExtractWebp(row.contentId, params.slot);
+  if (!bytes) {
+    throw new HttpError(404, "Figure preview not found");
+  }
+  return bytes;
 }
 
 export async function getUserFileWithSignedUrl(params: {

@@ -292,6 +292,43 @@ export async function getFileSummarySpeechById(
   }
 }
 
+export async function getPdfExtractionPreviewById(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const rawId = req.params.id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
+  if (!id || !isUuid(id)) {
+    res.status(400).json({ error: "Invalid file id" });
+    return;
+  }
+  const rawSlot = req.params.slot;
+  const slotStr = Array.isArray(rawSlot) ? rawSlot[0] : rawSlot;
+  const slot = Number(slotStr);
+  if (!Number.isInteger(slot) || slot < 0) {
+    res.status(400).json({ error: "Invalid slot" });
+    return;
+  }
+  try {
+    const bytes = await fileService.getUserPdfExtractionPreview({
+      userId,
+      fileId: id,
+      slot,
+    });
+    res.setHeader("Content-Type", "image/webp");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.status(200).send(bytes);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function getFileThumbnailById(
   req: Request,
   res: Response,
@@ -514,6 +551,23 @@ export async function uploadFile(
       storagePath: string;
       createdAt: string;
     }> = [];
+    const postResponseIndexJobs: Array<
+      | {
+          kind: "extract";
+          contentId: string;
+          fileId: string;
+          buffer: Buffer;
+          mimeType: string;
+          originalName: string;
+        }
+      | {
+          kind: "image";
+          contentId: string;
+          buffer: Buffer;
+          mimeType: string;
+          originalName: string;
+        }
+    > = [];
 
     const uploadOne = (file: (typeof files)[number]) =>
       fileService.uploadUserFile({
@@ -567,14 +621,17 @@ export async function uploadFile(
       );
       if (uploaded.shouldIndexContent) {
         if (file.mimetype === PDF_MIME || file.mimetype === DOCX_MIME) {
-          scheduleExtractionAfterUpload({
+          postResponseIndexJobs.push({
+            kind: "extract",
             contentId: uploaded.contentId,
+            fileId: row.id,
             buffer: file.buffer,
             mimeType: file.mimetype,
             originalName: file.originalname,
           });
         } else if (isImageMimeType(file.mimetype)) {
-          scheduleImageIndexAfterUpload({
+          postResponseIndexJobs.push({
+            kind: "image",
             contentId: uploaded.contentId,
             buffer: file.buffer,
             mimeType: file.mimetype,
@@ -595,6 +652,28 @@ export async function uploadFile(
     } else {
       res.status(201).json({ files: created });
     }
+
+    // Strict fire-and-forget: dispatch indexing only after HTTP response is sent.
+    setImmediate(() => {
+      for (const job of postResponseIndexJobs) {
+        if (job.kind === "extract") {
+          scheduleExtractionAfterUpload({
+            contentId: job.contentId,
+            fileId: job.fileId,
+            buffer: job.buffer,
+            mimeType: job.mimeType,
+            originalName: job.originalName,
+          });
+          continue;
+        }
+        scheduleImageIndexAfterUpload({
+          contentId: job.contentId,
+          buffer: job.buffer,
+          mimeType: job.mimeType,
+          originalName: job.originalName,
+        });
+      }
+    });
   } catch (e) {
     next(e);
   }
