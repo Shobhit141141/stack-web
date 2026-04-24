@@ -26,8 +26,10 @@ import { useUploadStore } from '../store/upload-store'
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
 import {
+  applyFileListPatches,
   emitFilesUpdated,
   FILES_UPDATED_EVENT,
+  type FilesUpdatedDetail,
 } from '../lib/file-sync-events'
 import { routeMap } from '../lib/routes'
 import type { FileItem } from '../types/file'
@@ -118,7 +120,11 @@ export function FilesPage() {
   }, [loadFiles])
 
   useEffect(() => {
-    function onFilesUpdated(_ev: Event) {
+    function onFilesUpdated(ev: Event) {
+      const detail = (ev as CustomEvent<FilesUpdatedDetail>).detail
+      if (detail?.optimistic?.patchFiles?.length) {
+        setFiles((prev) => applyFileListPatches(prev, detail.optimistic!.patchFiles))
+      }
       void loadFiles()
       void loadWorkspaces()
     }

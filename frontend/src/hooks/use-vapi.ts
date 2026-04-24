@@ -15,8 +15,9 @@ import {
   type StackVoiceMeta,
 } from '../lib/stack-voice-meta'
 import { sendStackFileToolSessionHint } from '../lib/vapi-session-hint'
-import { emitFilesUpdated } from '../lib/file-sync-events'
-import { deleteFile, downloadFileBlob } from '../services/file-service'
+import { emitFilesUpdated, type FilesUpdatedDetail } from '../lib/file-sync-events'
+import { deleteFile, downloadFileBlob, renameFile } from '../services/file-service'
+import { assignFileToWorkspace } from '../services/workspace-service'
 import {
   formatVapiConnectStage,
   VAPI_CONNECT_SLOW_HINT_MS,
@@ -207,6 +208,63 @@ export function useVapi(options?: { workspaceId?: string }) {
       toast.error('Could not copy link')
     }
   }, [])
+
+  const moveReferredFile = useCallback(
+    async (
+      fileId: string,
+      fileName: string,
+      targetWorkspaceId: string | null,
+      successMessage?: string,
+    ) => {
+      try {
+        await assignFileToWorkspace(fileId, targetWorkspaceId)
+        const detail: FilesUpdatedDetail = {
+          global: true,
+          optimistic: {
+            patchFiles: [{ id: fileId, workspaceId: targetWorkspaceId }],
+          },
+        }
+        emitFilesUpdated(detail)
+        toast.success(
+          successMessage ??
+            (targetWorkspaceId === null
+              ? `${fileName} is now unassigned`
+              : 'File moved'),
+        )
+      } catch {
+        toast.error('Could not move file')
+      }
+    },
+    [],
+  )
+
+  const renameReferredFile = useCallback(
+    async (fileId: string, _fileName: string, newName: string): Promise<boolean> => {
+      const trimmed = newName.trim()
+      if (!trimmed) {
+        toast.error('Enter a name')
+        return false
+      }
+      try {
+        await renameFile(fileId, trimmed)
+        emitFilesUpdated({
+          global: true,
+          optimistic: { patchFiles: [{ id: fileId, name: trimmed }] },
+        })
+        setReferredFiles((prev) =>
+          prev.map((f) =>
+            f.fileId === fileId ? { ...f, fileName: trimmed } : f,
+          ),
+        )
+        toast.success('File renamed')
+        return true
+      } catch {
+        toast.error('Could not rename file')
+        return false
+      }
+    },
+    [],
+  )
 
   // full vapi.start + retries; deduped; used by background warm and by start()
   const establishVapiSession = useCallback(async (opts?: { background?: boolean }) => {
@@ -410,6 +468,55 @@ export function useVapi(options?: { workspaceId?: string }) {
               ),
             )
             .catch(() => toast.error('Could not copy link'))
+          return
+        }
+        if (clientAction.type === 'fileWorkspaceChanged' && clientAction.fileId) {
+          const w = clientAction.workspaceId ?? 'null'
+          const key = `fileWorkspaceChanged:${clientAction.fileId}:${w}`
+          if (handledClientActionKeysRef.current.has(key)) return
+          handledClientActionKeysRef.current.add(key)
+          setReferredFiles((prev) =>
+            prev.map((f) =>
+              f.fileId === clientAction.fileId
+                ? { ...f, fileName: clientAction.fileName ?? f.fileName }
+                : f,
+            ),
+          )
+          const detail: FilesUpdatedDetail = {
+            global: true,
+            optimistic: {
+              patchFiles: [
+                {
+                  id: clientAction.fileId,
+                  workspaceId: clientAction.workspaceId ?? null,
+                },
+              ],
+            },
+          }
+          emitFilesUpdated(detail)
+          return
+        }
+        if (
+          clientAction.type === 'fileRenamed' &&
+          clientAction.fileId &&
+          clientAction.name
+        ) {
+          const key = `fileRenamed:${clientAction.fileId}:${clientAction.name}`
+          if (handledClientActionKeysRef.current.has(key)) return
+          handledClientActionKeysRef.current.add(key)
+          setReferredFiles((prev) =>
+            prev.map((f) =>
+              f.fileId === clientAction.fileId
+                ? { ...f, fileName: clientAction.name! }
+                : f,
+            ),
+          )
+          emitFilesUpdated({
+            global: true,
+            optimistic: {
+              patchFiles: [{ id: clientAction.fileId, name: clientAction.name }],
+            },
+          })
         }
       }
 
@@ -661,5 +768,7 @@ export function useVapi(options?: { workspaceId?: string }) {
     downloadReferredFile,
     copyReferredFile,
     deleteReferredFile,
+    moveReferredFile,
+    renameReferredFile,
   }
 }

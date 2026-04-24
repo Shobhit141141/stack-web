@@ -1,11 +1,23 @@
 export type StackMetaPayload = {
   sources?: Array<{ fileId: string; fileName: string }>;
   clientAction?: {
-    type: "openUrl" | "copyText" | "downloadFile";
+    type:
+      | "openUrl"
+      | "copyText"
+      | "downloadFile"
+      | "fileWorkspaceChanged"
+      | "fileRenamed";
     url?: string;
     text?: string;
     fileId?: string;
     fileName?: string;
+    /** workspace before move (null = unassigned) */
+    previousWorkspaceId?: string | null;
+    /** workspace after move (null = unassigned) */
+    workspaceId?: string | null;
+    /** new display name after rename */
+    name?: string;
+    previousName?: string;
   };
 };
 

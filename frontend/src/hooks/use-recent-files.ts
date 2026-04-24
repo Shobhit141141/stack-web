@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import {
+  applyFileListPatches,
+  FILES_UPDATED_EVENT,
+  type FilesUpdatedDetail,
+} from '../lib/file-sync-events'
 import type { FileItem } from '../types/file'
 import { fetchRecentFiles } from '../services/file-service'
 
@@ -20,9 +25,30 @@ export function useRecentFiles() {
     }
   }, [])
 
+  const refetchQuiet = useCallback(async () => {
+    try {
+      const data = await fetchRecentFiles()
+      setFiles(data)
+    } catch {
+      // keep prior list on background refresh failure
+    }
+  }, [])
+
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    function onFilesUpdated(ev: Event) {
+      const detail = (ev as CustomEvent<FilesUpdatedDetail>).detail
+      if (detail?.optimistic?.patchFiles?.length) {
+        setFiles((prev) => applyFileListPatches(prev, detail.optimistic!.patchFiles))
+      }
+      void refetchQuiet()
+    }
+    window.addEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+    return () => window.removeEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+  }, [refetchQuiet])
 
   return { files, loading, error, refetch: load }
 }

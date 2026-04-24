@@ -15,7 +15,7 @@ import { logVapiDebug } from "../utils/debug-log.util.js";
  *
  * Add a server tool in the Vapi assistant (same webhook URL): name `stackFileAction`, e.g.
  * parameters: { type: "object", properties: {
- *   action: { type: "string", enum: ["download","copy","delete","move"] },
+ *   action: { type: "string", enum: ["download","copy","delete","move","rename"] },
  *   fileId: { type: "string" }, fileName: { type: "string" },
  *   workspaceId: { type: "string" }, workspaceName: { type: "string" }
  * }, required: ["action"] }

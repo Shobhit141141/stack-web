@@ -25,7 +25,12 @@ import { fetchFileList } from '../../services/file-service'
 import { openKnownFile } from '../../hooks/use-open-file'
 import type { FileItem } from '../../types/file'
 import { fileIcon, isImageFileType } from '../../utils/file-display'
-import { FILES_UPDATED_EVENT, type FilesUpdatedDetail } from '../../lib/file-sync-events'
+import {
+  applyFileListPatches,
+  FILES_UPDATED_EVENT,
+  filterFilesForWorkspace,
+  type FilesUpdatedDetail,
+} from '../../lib/file-sync-events'
 
 type ChatTurn = {
   id?: string
@@ -349,14 +354,23 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   useEffect(() => {
     function onFilesUpdated(ev: Event) {
       const detail = (ev as CustomEvent<FilesUpdatedDetail>).detail
-      if (detail?.workspaceId && detail.workspaceId !== workspaceId) return
-      void fetchFileList({ workspaceId, limit: 200 })
-        .then(({ files }) => {
-          setWorkspaceFiles(files)
-        })
-        .catch(() => {
-          // non-blocking refresh
-        })
+      if (detail?.optimistic?.patchFiles?.length) {
+        setWorkspaceFiles((prev) =>
+          filterFilesForWorkspace(
+            applyFileListPatches(prev, detail.optimistic!.patchFiles),
+            workspaceId,
+          ),
+        )
+      }
+      if (detail?.global || !detail?.workspaceId || detail.workspaceId === workspaceId) {
+        void fetchFileList({ workspaceId, limit: 200 })
+          .then(({ files }) => {
+            setWorkspaceFiles(files)
+          })
+          .catch(() => {
+            // non-blocking refresh
+          })
+      }
     }
     window.addEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
     return () => window.removeEventListener(FILES_UPDATED_EVENT, onFilesUpdated)

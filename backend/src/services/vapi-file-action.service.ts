@@ -11,9 +11,10 @@ export async function handleStackFileAction(params: {
   args: Record<string, unknown>;
 }): Promise<{ result: string; meta: StackMetaPayload }> {
   const action = String(params.args.action ?? "").toLowerCase().trim();
-  if (!["download", "copy", "delete", "move"].includes(action)) {
+  if (!["download", "copy", "delete", "move", "rename"].includes(action)) {
     return {
-      result: "Unknown action. Use download, copy, delete, or move.",
+      result:
+        "Unknown action. Use download, copy, delete, move, or rename.",
       meta: {},
     };
   }
@@ -26,14 +27,23 @@ export async function handleStackFileAction(params: {
       ? params.args.fileName.trim()
       : "";
 
-  let resolved: { id: string; originalName: string } | null = null;
+  let resolved: {
+    id: string;
+    originalName: string;
+    workspaceId: string | null;
+  } | null = null;
 
   if (fileId) {
     const row = await fileRepository.findFileByIdForUser(
       fileId,
       params.userId
     );
-    if (row) resolved = { id: row.id, originalName: row.originalName };
+    if (row)
+      resolved = {
+        id: row.id,
+        originalName: row.originalName,
+        workspaceId: row.workspaceId ?? null,
+      };
   }
 
   if (!resolved && fileName) {
@@ -57,6 +67,7 @@ export async function handleStackFileAction(params: {
     resolved = {
       id: rows[0]!.id,
       originalName: rows[0]!.originalName,
+      workspaceId: rows[0]!.workspaceId ?? null,
     };
   }
 
@@ -132,6 +143,42 @@ export async function handleStackFileAction(params: {
     };
   }
 
+  if (action === "rename") {
+    const rawNew =
+      params.args.newName ?? params.args.name ?? params.args.newFileName;
+    const newName =
+      typeof rawNew === "string" ? rawNew.trim() : "";
+    if (!newName) {
+      return {
+        result: "Say the new file name, or pass newName in the tool arguments.",
+        meta: {},
+      };
+    }
+    try {
+      const updated = await fileService.renameUserFile({
+        userId: params.userId,
+        fileId: resolved.id,
+        name: newName,
+      });
+      return {
+        result: `Renamed to ${updated.name}.`,
+        meta: {
+          clientAction: {
+            type: "fileRenamed",
+            fileId: resolved.id,
+            name: updated.name,
+            previousName: resolved.originalName,
+          },
+        },
+      };
+    } catch {
+      return {
+        result: "Could not rename that file.",
+        meta: {},
+      };
+    }
+  }
+
   // move
   const wsRaw = params.args.workspaceId;
   const wsNameRaw = params.args.workspaceName;
@@ -185,16 +232,28 @@ export async function handleStackFileAction(params: {
     }
   }
 
+  const previousWorkspaceId = resolved.workspaceId;
+
   await fileService.assignUserFileWorkspace({
     userId: params.userId,
     fileId: resolved.id,
     workspaceId: targetWid,
   });
 
+  const moveMeta = {
+    clientAction: {
+      type: "fileWorkspaceChanged" as const,
+      fileId: resolved.id,
+      fileName: resolved.originalName,
+      previousWorkspaceId,
+      workspaceId: targetWid,
+    },
+  };
+
   if (targetWid === null) {
     return {
       result: `Moved ${resolved.originalName} out of any workspace (unassigned).`,
-      meta: {},
+      meta: moveMeta,
     };
   }
   const ws = await workspaceRepository.findWorkspaceByIdForUser(
@@ -204,6 +263,6 @@ export async function handleStackFileAction(params: {
   const label = ws?.name ?? "workspace";
   return {
     result: `Moved ${resolved.originalName} to ${label}.`,
-    meta: {},
+    meta: moveMeta,
   };
 }

@@ -24,8 +24,10 @@ import { useLinkImportWorkspaceStore } from '../store/link-import-workspace-stor
 import { useBrowserViewMode } from '../hooks/use-browser-view-mode'
 import { useOpenFile } from '../hooks/use-open-file'
 import {
+  applyFileListPatches,
   emitFilesUpdated,
   FILES_UPDATED_EVENT,
+  filterFilesForWorkspace,
   type FilesUpdatedDetail,
 } from '../lib/file-sync-events'
 import { routeMap } from '../lib/routes'
@@ -117,7 +119,19 @@ export function WorkspacePage() {
   useEffect(() => {
     function onFilesUpdated(ev: Event) {
       const detail = (ev as CustomEvent<FilesUpdatedDetail>).detail
-      if (!detail?.workspaceId || detail.workspaceId === workspaceId) {
+      if (detail?.optimistic?.patchFiles?.length) {
+        setFiles((prev) =>
+          filterFilesForWorkspace(
+            applyFileListPatches(prev, detail.optimistic!.patchFiles),
+            workspaceId,
+          ),
+        )
+      }
+      if (
+        detail?.global ||
+        !detail?.workspaceId ||
+        detail.workspaceId === workspaceId
+      ) {
         void load()
       }
     }

@@ -3,11 +3,20 @@
 export type StackVoiceMeta = {
   sources?: Array<{ fileId: string; fileName: string }>
   clientAction?: {
-    type: 'openUrl' | 'copyText' | 'downloadFile'
+    type:
+      | 'openUrl'
+      | 'copyText'
+      | 'downloadFile'
+      | 'fileWorkspaceChanged'
+      | 'fileRenamed'
     url?: string
     text?: string
     fileId?: string
     fileName?: string
+    previousWorkspaceId?: string | null
+    workspaceId?: string | null
+    name?: string
+    previousName?: string
   }
 }
 

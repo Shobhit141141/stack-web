@@ -2,12 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   HiOutlineArrowDownTray,
+  HiOutlineArrowsRightLeft,
   HiOutlineDocumentDuplicate,
   HiOutlineMicrophone,
+  HiOutlinePencilSquare,
   HiOutlineTrash,
   HiOutlineXMark,
 } from 'react-icons/hi2'
 import type { VapiStatus, VoiceReferredFile, VoiceTurn } from '../../hooks/use-vapi'
+import type { WorkspaceItem } from '../../services/workspace-service'
+
+const MOVE_PLACEHOLDER = ''
+const MOVE_UNASSIGNED = '__unassigned__'
 
 type Props = {
   status: VapiStatus
@@ -16,13 +22,19 @@ type Props = {
   assistantStreaming: boolean
   turns: VoiceTurn[]
   referredFiles: VoiceReferredFile[]
-  /** hide overlay but keep realtime session warm */
+  workspaces: WorkspaceItem[]
+  /** end voice session and tear down the realtime connection */
   onClose: () => void
-  /** tear down vapi/daily session completely */
-  onDisconnect: () => void
   onDownloadFile: (fileId: string) => void
   onCopyFileLink: (fileId: string) => void
   onDeleteFile: (fileId: string, fileName: string) => void
+  onMoveFile: (
+    fileId: string,
+    fileName: string,
+    targetWorkspaceId: string | null,
+    successMessage?: string,
+  ) => void
+  onRenameFile: (fileId: string, fileName: string, newName: string) => Promise<boolean>
 }
 
 const CONNECTING_CHATTER = [
@@ -59,15 +71,20 @@ export function VoiceSessionOverlay({
   assistantStreaming,
   turns,
   referredFiles,
+  workspaces,
   onClose,
-  onDisconnect,
   onDownloadFile,
   onCopyFileLink,
   onDeleteFile,
+  onMoveFile,
+  onRenameFile,
 }: Props) {
   const isConnecting = status === 'connecting'
   const scrollRef = useRef<HTMLDivElement>(null)
   const [connectingLine, setConnectingLine] = useState(() => pickRandomConnectingLine())
+  const [renameState, setRenameState] = useState<{ fileId: string; draft: string } | null>(
+    null,
+  )
 
   useEffect(() => {
     if (!isConnecting) return
@@ -233,7 +250,8 @@ export function VoiceSessionOverlay({
                 Referenced files
               </p>
               <p className="mb-3 text-xs leading-snug text-white/60">
-                Say “download”, “copy link”, or “delete”, or use the actions below.
+                Say “download”, “copy link”, “delete”, “move”, or “rename” — or use the actions
+                below.
               </p>
               <ul className="flex flex-col gap-3">
                 {referredFiles.map((f) => (
@@ -242,7 +260,7 @@ export function VoiceSessionOverlay({
                     className="rounded-xl border border-white/15 bg-white/5 px-3 py-2.5"
                   >
                     <p className="truncate text-sm font-medium text-white/95" title={f.fileName}>
-                      {f.fileName}
+                      {renameState?.fileId === f.fileId ? renameState.draft : f.fileName}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <button
@@ -263,6 +281,47 @@ export function VoiceSessionOverlay({
                       </button>
                       <button
                         type="button"
+                        onClick={() => setRenameState({ fileId: f.fileId, draft: f.fileName })}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/15"
+                      >
+                        <HiOutlinePencilSquare className="size-3.5" aria-hidden />
+                        Rename
+                      </button>
+                      <div className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-2 py-1.5 text-xs font-medium text-white/90">
+                        <HiOutlineArrowsRightLeft className="size-3.5 shrink-0" aria-hidden />
+                        <select
+                          className="min-w-0 max-w-[min(200px,70vw)] cursor-pointer truncate bg-transparent text-xs font-medium text-white/95 outline-none"
+                          defaultValue={MOVE_PLACEHOLDER}
+                          aria-label={`Move ${f.fileName} to workspace`}
+                          onChange={(e) => {
+                            const sel = e.currentTarget
+                            const v = sel.value
+                            if (!v) return
+                            const target = v === MOVE_UNASSIGNED ? null : v
+                            const wsName = workspaces.find((w) => w.id === v)?.name
+                            const successMessage =
+                              v === MOVE_UNASSIGNED
+                                ? `${f.fileName} is now unassigned`
+                                : wsName
+                                  ? `Moved to ${wsName}`
+                                  : undefined
+                            onMoveFile(f.fileId, f.fileName, target, successMessage)
+                            sel.selectedIndex = 0
+                          }}
+                        >
+                          <option value={MOVE_PLACEHOLDER} disabled>
+                            Move to…
+                          </option>
+                          <option value={MOVE_UNASSIGNED}>Unassigned</option>
+                          {workspaces.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
                         onClick={() => {
                           if (
                             typeof window !== 'undefined' &&
@@ -277,6 +336,44 @@ export function VoiceSessionOverlay({
                         Delete
                       </button>
                     </div>
+                    {renameState?.fileId === f.fileId ? (
+                      <div className="mt-3 flex flex-col gap-2 border-t border-white/10 pt-3">
+                        <input
+                          value={renameState.draft}
+                          onChange={(e) =>
+                            setRenameState({ fileId: f.fileId, draft: e.target.value })
+                          }
+                          className="w-full rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/35 outline-none focus:ring-2 focus:ring-violet-400/50"
+                          placeholder="New file name"
+                          autoFocus
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void (async () => {
+                                const ok = await onRenameFile(
+                                  f.fileId,
+                                  f.fileName,
+                                  renameState.draft,
+                                )
+                                if (ok) setRenameState(null)
+                              })()
+                            }}
+                            className="rounded-lg border border-white/25 bg-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/30"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRenameState(null)}
+                            className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-white/80 hover:bg-white/10"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -293,15 +390,6 @@ export function VoiceSessionOverlay({
             <HiOutlineXMark className="size-4" aria-hidden />
             {isConnecting ? 'Cancel' : 'Close'}
           </button>
-          {!isConnecting ? (
-            <button
-              type="button"
-              onClick={onDisconnect}
-              className="text-xs font-medium text-white/55 underline-offset-2 hover:text-white/80 hover:underline"
-            >
-              Disconnect fully
-            </button>
-          ) : null}
         </div>
       </div>
     </motion.div>

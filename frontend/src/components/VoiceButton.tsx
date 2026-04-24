@@ -1,7 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react'
+import { useEffect, useState } from 'react'
 import { HiOutlineMicrophone, HiOutlineXMark } from 'react-icons/hi2'
 import { useLocation } from 'react-router-dom'
 import { useVapi } from '../hooks/use-vapi'
+import { fetchWorkspaces, type WorkspaceItem } from '../services/workspace-service'
 import { VoiceSessionOverlay } from './voice/voice-session-overlay'
 
 function workspaceIdFromPath(pathname: string): string | undefined {
@@ -26,11 +28,12 @@ export function VoiceButton() {
     configured,
     voiceOverlayOpen,
     toggle,
-    pause,
     stop,
     downloadReferredFile,
     copyReferredFile,
     deleteReferredFile,
+    moveReferredFile,
+    renameReferredFile,
   } = useVapi({ workspaceId })
 
   if (!configured) return null
@@ -39,6 +42,22 @@ export function VoiceButton() {
   const isConnecting = status === 'connecting'
   const isError = status === 'error'
   const showOverlay = voiceOverlayOpen
+
+  const [overlayWorkspaces, setOverlayWorkspaces] = useState<WorkspaceItem[]>([])
+  useEffect(() => {
+    if (!showOverlay) return
+    let cancelled = false
+    void fetchWorkspaces()
+      .then((list) => {
+        if (!cancelled) setOverlayWorkspaces(list)
+      })
+      .catch(() => {
+        if (!cancelled) setOverlayWorkspaces([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showOverlay])
 
   const userText = (transcriptLive || transcript).trim()
   const assistantText = (
@@ -62,11 +81,13 @@ export function VoiceButton() {
             assistantStreaming={assistantStreaming}
             turns={turns}
             referredFiles={referredFiles}
-            onClose={() => (isConnecting ? stop() : pause())}
-            onDisconnect={stop}
+            workspaces={overlayWorkspaces}
+            onClose={stop}
             onDownloadFile={downloadReferredFile}
             onCopyFileLink={copyReferredFile}
             onDeleteFile={deleteReferredFile}
+            onMoveFile={moveReferredFile}
+            onRenameFile={renameReferredFile}
           />
         ) : null}
       </AnimatePresence>
