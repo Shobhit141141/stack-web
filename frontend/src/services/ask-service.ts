@@ -68,7 +68,19 @@ export type FlashcardsPayload = {
   }>
 }
 
-export type ChatPayload = QuizPayload | QuizSubmissionPayload | QuizResultPayload | FlashcardsPayload
+export type AskFeature = 'quiz' | 'flashcards' | 'audio'
+
+export type FeatureUsagePayload = {
+  kind: 'feature_usage'
+  feature: AskFeature
+}
+
+export type ChatPayload =
+  | QuizPayload
+  | QuizSubmissionPayload
+  | QuizResultPayload
+  | FlashcardsPayload
+  | FeatureUsagePayload
 
 export type AskResponse = {
   answer: string
@@ -80,6 +92,7 @@ export type AskResponse = {
 export async function postAsk(params: {
   query: string
   displayQuery?: string
+  feature?: AskFeature
   workspaceId?: string
   fileIds?: string[]
   conversationId?: string
@@ -89,6 +102,7 @@ export async function postAsk(params: {
     json: {
       query: params.query,
       ...(params.displayQuery ? { displayQuery: params.displayQuery } : {}),
+      ...(params.feature ? { feature: params.feature } : {}),
       ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
       ...(params.fileIds?.length ? { fileIds: params.fileIds } : {}),
       ...(params.conversationId ? { conversationId: params.conversationId } : {}),

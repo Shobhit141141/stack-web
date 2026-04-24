@@ -29,6 +29,7 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
     const body = req.body as {
       query?: unknown;
       displayQuery?: unknown;
+      feature?: unknown;
       fileIds?: unknown;
       workspaceId?: unknown;
       conversationId?: unknown;
@@ -102,11 +103,24 @@ export async function postAsk(req: Request, res: Response, next: NextFunction) {
 
     const displayQuery =
       typeof body.displayQuery === "string" ? body.displayQuery.trim() : undefined;
+    const feature =
+      body.feature === "quiz" ||
+      body.feature === "flashcards" ||
+      body.feature === "audio"
+        ? body.feature
+        : body.feature === undefined
+        ? undefined
+        : null;
+    if (feature === null) {
+      res.status(400).json({ error: "feature must be one of: quiz, flashcards, audio" });
+      return;
+    }
 
     const result = await askService.askUserFiles({
       userId,
       query,
       displayQuery,
+      ...(feature ? { feature } : {}),
       fileIds,
       workspaceId,
       conversationId,

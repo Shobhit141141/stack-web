@@ -157,6 +157,7 @@ function safeUuidLikeFromNow(): string {
 }
 
 type StudyMode = "quiz" | "flashcards";
+type AskFeature = StudyMode | "audio";
 
 function parseStudyPrompt(
   rawQuery: string
@@ -575,6 +576,7 @@ export async function askUserFiles(params: {
   userId: string;
   query: string;
   displayQuery?: string;
+  feature?: AskFeature;
   fileIds?: string[];
   workspaceId?: string;
   conversationId?: string;
@@ -583,7 +585,24 @@ export async function askUserFiles(params: {
 }): Promise<AskResult> {
   const t0 = performance.now();
   const rawQuery = params.query.trim();
-  const studyPrompt = parseStudyPrompt(rawQuery);
+  const studyPrompt =
+    params.feature === "quiz"
+      ? { mode: "quiz", prompt: rawQuery || "Create a general quiz from the provided context." }
+      : params.feature === "flashcards"
+      ? {
+          mode: "flashcards",
+          prompt: rawQuery || "Create concise flashcards from the provided context.",
+        }
+      : parseStudyPrompt(rawQuery);
+  const detectedFeature: AskFeature | undefined =
+    params.feature ??
+    (studyPrompt?.mode === "quiz" || studyPrompt?.mode === "flashcards"
+      ? studyPrompt.mode
+      : undefined);
+  const featureUsagePayload =
+    detectedFeature && detectedFeature.trim()
+      ? { kind: "feature_usage" as const, feature: detectedFeature }
+      : undefined;
 
   let scopedFileIds = 0;
   let restrictContentIds: string[] | undefined;
@@ -683,6 +702,7 @@ export async function askUserFiles(params: {
           conversationId,
           role: "user",
           content: params.displayQuery || rawQuery,
+          ...(featureUsagePayload ? { payload: featureUsagePayload } : {}),
         });
         await conversationRepository.createMessage({
           conversationId,
@@ -914,6 +934,7 @@ export async function askUserFiles(params: {
           conversationId,
           role: "user",
           content: params.displayQuery || rawQuery,
+          ...(featureUsagePayload ? { payload: featureUsagePayload } : {}),
         });
         await conversationRepository.createMessage({
           conversationId,
@@ -937,6 +958,7 @@ export async function askUserFiles(params: {
         conversationId,
         role: "user",
         content: params.displayQuery || rawQuery,
+        ...(featureUsagePayload ? { payload: featureUsagePayload } : {}),
       });
       await conversationRepository.createMessage({
         conversationId,
@@ -1101,6 +1123,7 @@ export async function askUserFiles(params: {
       conversationId,
       role: "user",
       content: params.displayQuery || rawQuery,
+      ...(featureUsagePayload ? { payload: featureUsagePayload } : {}),
     });
     await conversationRepository.createMessage({
       conversationId,

@@ -44,15 +44,9 @@ function FolderCardGrid({
 }) {
   return (
     <div
-      className="group relative rounded-xl bg-white p-4 transition-colors hover:bg-neutral-50"
+      className="group relative rounded-xl bg-white p-4"
       onContextMenuCapture={(e) => openWorkspaceContextMenu(e, ws, onMenuOpen)}
     >
-      <WorkspaceFolderMenuTrigger
-        variant="card"
-        workspace={ws}
-        title={`Workspace actions for ${ws.name}`}
-        onOpen={onMenuOpen}
-      />
       <Link
         to={href}
         className="flex flex-col gap-2 text-left"
@@ -64,13 +58,21 @@ function FolderCardGrid({
             aria-hidden
           />
         </div>
-        <div className="flex w-full flex-col gap-0.5 overflow-hidden pr-6">
-          <Text
-            size="2"
-            className="w-full truncate text-left font-medium text-neutral-900 transition-all duration-200 group-hover:font-semibold"
-          >
-            {ws.name}
-          </Text>
+        <div className="flex w-full flex-col gap-0.5 overflow-hidden">
+          <div className="flex w-full items-center gap-2">
+            <Text
+              size="2"
+              className="min-w-0 flex-1 truncate text-left font-medium text-neutral-900 transition-all duration-200 group-hover:font-semibold"
+            >
+              {ws.name}
+            </Text>
+            <WorkspaceFolderMenuTrigger
+              workspace={ws}
+              title={`Workspace actions for ${ws.name}`}
+              onOpen={onMenuOpen}
+              variant="inline"
+            />
+          </div>
           <Text size="1" className="text-neutral-500">
             {formatRelativeTime(ws.updatedAt)}
           </Text>
@@ -91,7 +93,7 @@ function FolderRowList({
 }) {
   return (
     <div
-      className="grid w-full items-center rounded-lg bg-white px-0 py-3 transition-colors hover:bg-neutral-50"
+      className="group grid w-full items-center rounded-lg bg-white px-0 py-3"
       style={{ gridTemplateColumns: FOLDER_LIST_GRID, gap: '1rem' }}
       onContextMenuCapture={(e) => openWorkspaceContextMenu(e, ws, onMenuOpen)}
     >
@@ -116,7 +118,7 @@ function FolderRowList({
       </Link>
       <Link
         to={href}
-        className="justify-self-end text-right text-sm text-neutral-500 transition-all duration-200 hover:font-bold"
+        className="justify-self-end text-right text-sm text-neutral-500 transition-all duration-200 group-hover:font-bold"
       >
         {formatRelativeTime(ws.updatedAt)}
       </Link>

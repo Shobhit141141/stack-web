@@ -39,26 +39,115 @@ function buildNameToFileId(sources: AskSource[]): Map<string, string> {
   return m
 }
 
+type TableAlign = 'left' | 'center' | 'right' | null
+
 type Segment =
   | { kind: 'text'; value: string }
   | { kind: 'file'; displayName: string }
+  | { kind: 'table'; headers: string[]; rows: string[][]; aligns: TableAlign[] }
 
-function parseAnswerIntoSegments(text: string): Segment[] {
-  const segments: Segment[] = []
+const TABLE_HEADER_RE = /^\|(.+)\|\s*$/
+const TABLE_SEPARATOR_RE = /^\|\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|\s*$/
+
+function splitTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '')
+  return trimmed.split('|').map((cell) => cell.trim())
+}
+
+function parseAlignments(separator: string): TableAlign[] {
+  return splitTableRow(separator).map((cell) => {
+    const left = cell.startsWith(':')
+    const right = cell.endsWith(':')
+    if (left && right) return 'center'
+    if (right) return 'right'
+    if (left) return 'left'
+    return null
+  })
+}
+
+type TableBlock = {
+  start: number
+  end: number
+  headers: string[]
+  rows: string[][]
+  aligns: TableAlign[]
+}
+
+function extractTableBlocks(text: string): TableBlock[] {
+  const blocks: TableBlock[] = []
+  const lines = text.split('\n')
+  const lineStarts: number[] = [0]
+  for (let i = 0; i < lines.length - 1; i++) {
+    lineStarts.push(lineStarts[i]! + lines[i]!.length + 1)
+  }
+
+  let i = 0
+  while (i < lines.length - 1) {
+    const headerLine = lines[i]!.trim()
+    const separatorLine = lines[i + 1]!.trim()
+    if (TABLE_HEADER_RE.test(headerLine) && TABLE_SEPARATOR_RE.test(separatorLine)) {
+      const headers = splitTableRow(headerLine)
+      const aligns = parseAlignments(separatorLine)
+      const rows: string[][] = []
+      let j = i + 2
+      while (j < lines.length) {
+        const rowLine = lines[j]!.trim()
+        if (!TABLE_HEADER_RE.test(rowLine)) break
+        rows.push(splitTableRow(rowLine))
+        j++
+      }
+      const endPos = j < lines.length ? lineStarts[j]! : text.length
+      blocks.push({ start: lineStarts[i]!, end: endPos, headers, rows, aligns })
+      i = j
+      continue
+    }
+    i++
+  }
+  return blocks
+}
+
+function pushTextAndFileSegments(chunk: string, out: Segment[]): void {
   let last = 0
   const re = new RegExp(FILE_REF_RE.source, 'g')
   let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
+  while ((m = re.exec(chunk)) !== null) {
     if (m.index > last) {
-      segments.push({ kind: 'text', value: text.slice(last, m.index) })
+      out.push({ kind: 'text', value: chunk.slice(last, m.index) })
     }
-    segments.push({ kind: 'file', displayName: m[1]!.trim() })
+    out.push({ kind: 'file', displayName: m[1]!.trim() })
     last = m.index + m[0].length
   }
-  if (last < text.length) {
-    segments.push({ kind: 'text', value: text.slice(last) })
+  if (last < chunk.length) {
+    out.push({ kind: 'text', value: chunk.slice(last) })
+  }
+}
+
+function parseAnswerIntoSegments(text: string): Segment[] {
+  const segments: Segment[] = []
+  const tables = extractTableBlocks(text)
+  let cursor = 0
+  for (const block of tables) {
+    if (block.start > cursor) {
+      pushTextAndFileSegments(text.slice(cursor, block.start), segments)
+    }
+    segments.push({
+      kind: 'table',
+      headers: block.headers,
+      rows: block.rows,
+      aligns: block.aligns,
+    })
+    cursor = block.end
+  }
+  if (cursor < text.length) {
+    pushTextAndFileSegments(text.slice(cursor), segments)
   }
   return segments
+}
+
+function alignClass(align: TableAlign): string {
+  if (align === 'center') return 'text-center'
+  if (align === 'right') return 'text-right'
+  return 'text-left'
 }
 
 function formatAudioClock(totalSeconds: number): string {
@@ -238,6 +327,47 @@ export function ChatAnswerContent({ text, sources }: Props) {
       {segments.map((seg, i) => {
         if (seg.kind === 'text') {
           return <span key={i}>{seg.value}</span>
+        }
+        if (seg.kind === 'table') {
+          return (
+            <div
+              key={i}
+              className="my-2 overflow-x-auto rounded-lg border border-neutral-200"
+            >
+              <table className="w-full border-collapse whitespace-normal text-xs">
+                <thead>
+                  <tr>
+                    {seg.headers.map((h, ci) => (
+                      <th
+                        key={ci}
+                        className={`border-b border-neutral-200 bg-neutral-100 px-2.5 py-1.5 font-semibold text-neutral-900 ${alignClass(
+                          seg.aligns[ci] ?? null,
+                        )}`}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {seg.rows.map((row, ri) => (
+                    <tr key={ri} className={ri % 2 === 1 ? 'bg-neutral-50/60' : 'bg-white'}>
+                      {row.map((cell, ci) => (
+                        <td
+                          key={ci}
+                          className={`border-t border-neutral-100 px-2.5 py-1.5 text-neutral-800 ${alignClass(
+                            seg.aligns[ci] ?? null,
+                          )}`}
+                        >
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
         }
         const id = nameToId.get(seg.displayName)
         return (

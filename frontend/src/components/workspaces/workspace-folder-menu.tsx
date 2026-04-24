@@ -2,11 +2,8 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
-  HiArrowTopRightOnSquare,
-  HiArrowUturnLeft,
+  HiEllipsisHorizontal,
   HiEllipsisVertical,
-  HiPencilSquare,
-  HiTrash,
 } from 'react-icons/hi2'
 import type { WorkspaceItem } from '../../services/workspace-service'
 
@@ -108,7 +105,6 @@ export function WorkspaceFolderActionsMenu({
             navigate(workspacePath(ws.id))
           }}
         >
-          <HiArrowTopRightOnSquare className="size-4 shrink-0 text-neutral-500" aria-hidden />
           Open
         </button>
       ) : onBackToFiles ? (
@@ -121,7 +117,6 @@ export function WorkspaceFolderActionsMenu({
             onBackToFiles()
           }}
         >
-          <HiArrowUturnLeft className="size-4 shrink-0 text-neutral-500" aria-hidden />
           Back to Files
         </button>
       ) : null}
@@ -134,7 +129,6 @@ export function WorkspaceFolderActionsMenu({
           onRename(ws)
         }}
       >
-        <HiPencilSquare className="size-4 shrink-0 text-neutral-500" aria-hidden />
         Rename workspace
       </button>
       <button
@@ -146,7 +140,6 @@ export function WorkspaceFolderActionsMenu({
           onDelete(ws)
         }}
       >
-        <HiTrash className="size-4 shrink-0" aria-hidden />
         Delete workspace
       </button>
     </div>
@@ -160,7 +153,7 @@ type TriggerProps = {
   workspace: WorkspaceItem
   title?: string
   /** list row: grid cell. card: absolute corner over folder art */
-  variant?: 'row' | 'card'
+  variant?: 'row' | 'card' | 'inline'
 }
 
 // icon-only ⋯ trigger — row end in list, fixed corner on grid cards
@@ -173,6 +166,8 @@ export function WorkspaceFolderMenuTrigger({
   const position =
     variant === 'card'
       ? 'absolute top-2 right-2 z-10 inline-flex'
+      : variant === 'inline'
+        ? 'inline-flex'
       : 'justify-self-end inline-flex'
   return (
     <button
@@ -191,7 +186,11 @@ export function WorkspaceFolderMenuTrigger({
         })
       }}
     >
-      <HiEllipsisVertical className="size-5" aria-hidden />
+      {variant === 'inline' ? (
+        <HiEllipsisHorizontal className="size-5" aria-hidden />
+      ) : (
+        <HiEllipsisVertical className="size-5" aria-hidden />
+      )}
     </button>
   )
 }

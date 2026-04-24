@@ -28,6 +28,8 @@ function shouldSkipGlobalLinkPaste(target: EventTarget | null): boolean {
   if (!target || !(target instanceof Element)) return false
   if (target.closest('[data-no-link-import]')) return true
   const el = target as HTMLElement
+  const tag = el.tagName.toLowerCase()
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true
   if (el.isContentEditable) return true
   return false
 }

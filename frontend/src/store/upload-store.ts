@@ -17,7 +17,12 @@ export const useUploadStore = create<UploadState>((set) => ({
   isOpen: false,
   defaultWorkspaceId: null,
   open: (opts) => {
-    const wid = opts?.defaultWorkspaceId ?? null
+    const fallbackWorkspaceId =
+      useLinkImportWorkspaceStore.getState().linkImportWorkspaceId
+    const wid =
+      opts && 'defaultWorkspaceId' in opts
+        ? opts.defaultWorkspaceId ?? null
+        : fallbackWorkspaceId ?? null
     useLinkImportWorkspaceStore.getState().setLinkImportWorkspaceId(wid)
     set({
       isOpen: true,

@@ -14,6 +14,7 @@ import { useImageThumbnailUrls } from '../../hooks/use-image-thumbnail-urls'
 import {
   postAsk,
   postQuizSubmit,
+  type AskFeature,
   type AskSource,
   type ChatPayload,
   type QuizResultPayload,
@@ -24,6 +25,7 @@ import { fetchFileList } from '../../services/file-service'
 import { openKnownFile } from '../../hooks/use-open-file'
 import type { FileItem } from '../../types/file'
 import { fileIcon, isImageFileType } from '../../utils/file-display'
+import { FILES_UPDATED_EVENT, type FilesUpdatedDetail } from '../../lib/file-sync-events'
 
 type ChatTurn = {
   id?: string
@@ -31,6 +33,7 @@ type ChatTurn = {
   text: string
   sources?: AskSource[]
   payload?: ChatPayload
+  featureUsed?: 'quiz' | 'flashcards' | 'audio'
 }
 
 type Props = {
@@ -71,6 +74,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
 ]
 
 type InteractionMode = 'quiz' | 'flashcards' | 'audio' | null
+type InteractionModeSource = 'manual' | 'auto' | null
 
 // reads plain text aloud; optional onEnd after utterance finishes
 function speakPlainText(text: string, onEnd?: () => void): void {
@@ -223,6 +227,48 @@ function stripFlashcardsTokenAnywhere(input: string): string {
   return input.replace(FLASHCARDS_TOKEN_RE, '$1').replace(/\s{2,}/g, ' ').trimStart()
 }
 
+function inferStudyIntent(
+  input: string,
+): 'quiz' | 'flashcards' | null {
+  const q = input.trim().toLowerCase()
+  if (!q) return null
+
+  const flashcardsIntent =
+    /\bflash\s*cards?\b/.test(q) ||
+    /\bmake\s+(?:me\s+)?flash\s*cards?\b/.test(q) ||
+    /\bgenerate\s+(?:me\s+)?flash\s*cards?\b/.test(q)
+  if (flashcardsIntent) return 'flashcards'
+
+  const quizIntent =
+    /\bquiz\b/.test(q) ||
+    /\bquestions?\b/.test(q) ||
+    /\bask\s+me\b/.test(q) ||
+    /\btest\s+me\b/.test(q)
+  if (quizIntent) return 'quiz'
+
+  return null
+}
+
+function inferFeatureFromInput(input: string): Exclude<InteractionMode, null> | null {
+  const q = input.trim().toLowerCase()
+  if (!q) return null
+  if (/\baudio\b/.test(q)) return 'audio'
+  return inferStudyIntent(q)
+}
+
+function featureFromPayload(payload: ChatPayload | undefined): AskFeature | undefined {
+  if (!payload || typeof payload !== 'object' || !('kind' in payload)) return undefined
+  if (payload.kind === 'feature_usage') return payload.feature
+  if (payload.kind === 'quiz' || payload.kind === 'quiz_result' || payload.kind === 'quiz_submission') return 'quiz'
+  if (payload.kind === 'flashcards') return 'flashcards'
+  return undefined
+}
+
+function inferFeatureFromMessageText(text: string): AskFeature | undefined {
+  const inferred = inferFeatureFromInput(text)
+  return inferred ?? undefined
+}
+
 function stripTrailingSlashCommandAtCursor(input: string, cursor: number): string {
   const safeCursor = Math.max(0, Math.min(cursor, input.length))
   const before = input.slice(0, safeCursor)
@@ -271,6 +317,8 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   const [slashFilter, setSlashFilter] = useState('')
   const [slashHighlight, setSlashHighlight] = useState(0)
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(null)
+  const [interactionModeSource, setInteractionModeSource] = useState<InteractionModeSource>(null)
+  const [suppressAutoFeatureEnable, setSuppressAutoFeatureEnable] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -299,6 +347,22 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   }, [workspaceId])
 
   useEffect(() => {
+    function onFilesUpdated(ev: Event) {
+      const detail = (ev as CustomEvent<FilesUpdatedDetail>).detail
+      if (detail?.workspaceId && detail.workspaceId !== workspaceId) return
+      void fetchFileList({ workspaceId, limit: 200 })
+        .then(({ files }) => {
+          setWorkspaceFiles(files)
+        })
+        .catch(() => {
+          // non-blocking refresh
+        })
+    }
+    window.addEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+    return () => window.removeEventListener(FILES_UPDATED_EVENT, onFilesUpdated)
+  }, [workspaceId])
+
+  useEffect(() => {
     let cancelled = false
     setHydrating(true)
     setSending(false)
@@ -310,13 +374,31 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
         if (cancelled) return
         setConversationId(snapshot.conversationId)
         setTurns(
-          snapshot.messages.map((m) => ({
-            id: m.id,
-            role: m.role,
-            text: m.content,
-            ...(Array.isArray(m.sources) ? { sources: m.sources } : {}),
-            ...(m.payload ? { payload: m.payload } : {}),
-          })),
+          snapshot.messages.map((m, i, arr) => {
+            const payload = m.payload
+            const payloadFeature = featureFromPayload(payload)
+            const textFeature = inferFeatureFromMessageText(m.content)
+            const currentFeature = payloadFeature ?? (m.role === 'user' ? textFeature : undefined)
+            const previous = i > 0 ? arr[i - 1] : undefined
+            const previousFeature =
+              previous?.role === 'user'
+                ? featureFromPayload(previous.payload) ?? inferFeatureFromMessageText(previous.content)
+                : undefined
+            const featureUsed =
+              m.role === 'user'
+                ? currentFeature
+                : previousFeature === 'audio'
+                  ? 'audio'
+                  : undefined
+            return {
+              id: m.id,
+              role: m.role,
+              text: m.content,
+              ...(Array.isArray(m.sources) ? { sources: m.sources } : {}),
+              ...(payload ? { payload } : {}),
+              ...(featureUsed ? { featureUsed } : {}),
+            }
+          }),
         )
       } catch (err) {
         if (!cancelled) {
@@ -405,9 +487,16 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       return
     }
     setMentionOpen(true)
-    setMentionStart(lastAt)
-    setMentionFilter(afterAt)
-    setMentionHighlight(0)
+    setMentionStart((prev) => {
+      const changed = prev !== lastAt
+      if (changed) setMentionHighlight(0)
+      return lastAt
+    })
+    setMentionFilter((prev) => {
+      const changed = prev !== afterAt
+      if (changed) setMentionHighlight(0)
+      return afterAt
+    })
   }
 
   function syncSlashFromValue(value: string, cursor: number) {
@@ -417,9 +506,13 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       setSlashOpen(false)
       return
     }
+    const nextFilter = m[1] ?? ''
     setSlashOpen(true)
-    setSlashFilter(m[1] ?? '')
-    setSlashHighlight(0)
+    setSlashFilter((prev) => {
+      const changed = prev !== nextFilter
+      if (changed) setSlashHighlight(0)
+      return nextFilter
+    })
   }
 
   function syncMentionFromTextarea() {
@@ -437,6 +530,8 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       ),
     )
     setInteractionMode(mode)
+    setInteractionModeSource('manual')
+    setSuppressAutoFeatureEnable(false)
     setQuery(next)
     setSlashOpen(false)
     requestAnimationFrame(() => {
@@ -450,6 +545,8 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     stopSpeechOutput()
     const next = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(query))
     setInteractionMode('audio')
+    setInteractionModeSource('manual')
+    setSuppressAutoFeatureEnable(false)
     setQuery(next)
     setSlashOpen(false)
     requestAnimationFrame(() => {
@@ -462,6 +559,8 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
   function clearInteractionMode() {
     stopSpeechOutput()
     setInteractionMode(null)
+    setInteractionModeSource(null)
+    setSuppressAutoFeatureEnable(true)
     const next = stripFlashcardsTokenAnywhere(stripQuizTokenAnywhere(query))
     setQuery(next)
     requestAnimationFrame(() => {
@@ -548,13 +647,19 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
     setSending(true)
     setMentionOpen(false)
     setSlashOpen(false)
-    setTurns((prev) => [...prev, { role: 'user', text: q }])
 
     const normalizedQuestion = mentionInfo.normalizedQuestion || q
+    const inferredStudyIntent =
+      interactionMode === 'quiz' || interactionMode === 'flashcards'
+        ? interactionMode
+        : inferStudyIntent(normalizedQuestion)
+    const featureUsed: ChatTurn['featureUsed'] =
+      inferredStudyIntent ?? (interactionModeRef.current === 'audio' ? 'audio' : undefined)
+    setTurns((prev) => [...prev, { role: 'user', text: q, featureUsed }])
     const wireQuestion =
-      interactionMode === 'quiz'
+      inferredStudyIntent === 'quiz'
         ? `${QUIZ_COMMAND} ${normalizedQuestion}`
-        : interactionMode === 'flashcards'
+        : inferredStudyIntent === 'flashcards'
           ? `${FLASHCARDS_COMMAND} ${normalizedQuestion}`
           : normalizedQuestion
     const askQuery = buildAskQuery(wireQuestion, mentionInfo.fileNames)
@@ -564,6 +669,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
       const res = await postAsk({
         query: askQuery,
         displayQuery: q,
+        ...(featureUsed ? { feature: featureUsed } : {}),
         workspaceId,
         conversationId,
         ...(fileIds?.length ? { fileIds } : {}),
@@ -575,6 +681,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
           text: res.answer,
           sources: res.sources,
           ...(res.payload ? { payload: res.payload } : {}),
+          ...(featureUsed ? { featureUsed } : {}),
         },
       ])
       if (interactionModeRef.current === 'audio') {
@@ -784,7 +891,7 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                   ) : (
                     <ChatAnswerContent text={t.text} sources={t.sources ?? []} />
                   )}
-                  {isAudioMode ? <ChatSummaryAudioPlayer sources={t.sources ?? []} /> : null}
+                  {t.featureUsed === 'audio' ? <ChatSummaryAudioPlayer sources={t.sources ?? []} /> : null}
                   {t.payload && t.payload.kind === 'quiz' ? (
                     <ChatQuizCard
                       quiz={t.payload}
@@ -797,14 +904,23 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                   <ChatSourceFileChips sources={t.sources ?? []} />
                 </>
               ) : (
-                <p className="whitespace-pre-wrap">
-                  {renderTextWithMentionHighlights(
-                    t.text,
-                    true,
-                    workspaceFiles,
-                    mentionThumbnailUrls,
-                  )}
-                </p>
+                <>
+                  {t.featureUsed ? (
+                    <div className="mb-1 flex justify-end">
+                      <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-white">
+                        {t.featureUsed}
+                      </span>
+                    </div>
+                  ) : null}
+                  <p className="whitespace-pre-wrap">
+                    {renderTextWithMentionHighlights(
+                      t.text,
+                      true,
+                      workspaceFiles,
+                      mentionThumbnailUrls,
+                    )}
+                  </p>
+                </>
               )}
             </div>
           ))
@@ -942,11 +1058,13 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
                 'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                 isAudioMode
                   ? 'border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100'
-                  : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100',
+                  : isFlashcardsMode
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                    : 'border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100',
               ].join(' ')}
               title="Turn off this mode"
             >
-              {isAudioMode ? 'Audio ×' : isQuizMode ? `${QUIZ_COMMAND} ×` : `${FLASHCARDS_COMMAND} ×`}
+              {isAudioMode ? 'Audio ×' : isQuizMode ? 'Quiz ×' : 'Flashcards ×'}
             </button>
           ) : null}
         </div>
@@ -966,9 +1084,30 @@ export function WorkspaceChatPanel({ workspaceId, workspaceName }: Props) {
               if (hasFlashcardsToken) {
                 stopSpeechOutput()
                 setInteractionMode('flashcards')
+                setInteractionModeSource('manual')
+                setSuppressAutoFeatureEnable(false)
               } else if (hasQuizToken) {
                 stopSpeechOutput()
                 setInteractionMode('quiz')
+                setInteractionModeSource('manual')
+                setSuppressAutoFeatureEnable(false)
+              } else {
+                const inferredFeature =
+                  !suppressAutoFeatureEnable ? inferFeatureFromInput(cleaned) : null
+                if (inferredFeature) {
+                  setInteractionMode(inferredFeature)
+                  setInteractionModeSource('auto')
+                } else if (interactionModeSource === 'auto') {
+                  setInteractionMode(null)
+                  setInteractionModeSource(null)
+                }
+              }
+              if (!cleaned.trim()) {
+                setSuppressAutoFeatureEnable(false)
+                if (interactionModeSource === 'auto') {
+                  setInteractionMode(null)
+                  setInteractionModeSource(null)
+                }
               }
               setQuery(cleaned)
               const nextCursor = Math.min(cursor, cleaned.length)

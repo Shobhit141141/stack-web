@@ -38,7 +38,10 @@ export function useOpenFile() {
         summaryStatus: file.summaryStatus,
       })
     } else if (isImage) {
-      openImage(file.id, file.name)
+      openImage(file.id, file.name, {
+        summary: file.summary ?? null,
+        summaryStatus: file.summaryStatus,
+      })
     } else {
       const url = await fetchFileSignedUrl(file.id)
       window.open(url, '_blank', 'noopener')

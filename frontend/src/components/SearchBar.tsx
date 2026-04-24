@@ -7,6 +7,22 @@ import { usePdfExtractionPreviewUrls } from '../hooks/use-pdf-extraction-preview
 import { fileIcon } from '../utils/file-display'
 import { Skeleton } from './ui/skeleton'
 
+function isLikelyImageFileName(name: string): boolean {
+  const lower = name.toLowerCase()
+  return (
+    lower.endsWith('.jpg') ||
+    lower.endsWith('.jpeg') ||
+    lower.endsWith('.png') ||
+    lower.endsWith('.webp') ||
+    lower.endsWith('.gif') ||
+    lower.endsWith('.bmp') ||
+    lower.endsWith('.svg') ||
+    lower.endsWith('.avif') ||
+    lower.endsWith('.heic') ||
+    lower.endsWith('.heif')
+  )
+}
+
 export function SearchBar() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -20,7 +36,13 @@ export function SearchBar() {
     for (const r of results) {
       if (!seen.has(r.fileId)) {
         seen.add(r.fileId)
-        rows.push({ fileId: r.fileId, type: r.type, thumbnailUrl: null })
+        const shouldUseImageThumb =
+          r.chunkType === 'image' || isLikelyImageFileName(r.fileName)
+        rows.push({
+          fileId: r.fileId,
+          type: shouldUseImageThumb ? 'image' : r.type,
+          thumbnailUrl: null,
+        })
       }
       if (r.previewFileId && !seen.has(r.previewFileId)) {
         seen.add(r.previewFileId)

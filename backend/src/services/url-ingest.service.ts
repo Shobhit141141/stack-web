@@ -20,6 +20,7 @@ import { HttpError } from "../utils/http-error.js";
 import { cleanExtractedText } from "../utils/extraction/text-clean.util.js";
 import { filePipelinePanel } from "../utils/file-pipeline-log.util.js";
 import { log } from "../utils/logger/index.js";
+import * as activityService from "./activity.service.js";
 import { scheduleDocumentIndexAfterExtraction } from "./document-index.service.js";
 import { scheduleExtractionAfterUpload } from "./extraction.service.js";
 import { scheduleImageIndexAfterUpload } from "./image-index.service.js";
@@ -505,6 +506,16 @@ export async function processUrlIngestJob(
               : "no index (reused or unsupported for index)",
       })
     );
+
+    activityService.logActivity({
+      userId,
+      type: "upload",
+      metadata: {
+        fileId: file.id,
+        fileName: file.originalName,
+        ...(workspaceId ? { workspaceId } : {}),
+      },
+    });
 
     if (!shouldIndexContent) {
       return { fileId: file.id, fileName: file.originalName };
