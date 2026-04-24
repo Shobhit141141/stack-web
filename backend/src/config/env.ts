@@ -69,6 +69,15 @@ export const env = {
 
   OCR_ENABLED: process.env.OCR_ENABLED === "true",
 
+  /** max PDF pages to rasterize for OCR (tesseract then optional AI) */
+  OCR_MAX_PAGES: Math.min(
+    30,
+    Math.max(1, Number(process.env.OCR_MAX_PAGES) || 8),
+  ),
+
+  /** when false, never call vision LLM for OCR (tesseract only) */
+  OCR_AI_FALLBACK: process.env.OCR_AI_FALLBACK !== "false",
+
   EMBEDDING_PROVIDER: embeddingProvider,
 
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,

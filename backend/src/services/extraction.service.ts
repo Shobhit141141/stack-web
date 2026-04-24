@@ -2,7 +2,10 @@ import { env } from "../config/env.js";
 import { DOCX_MIME, PDF_MIME } from "../constants/upload-file-types.js";
 import { extractDocxText } from "../utils/extraction/docx.util.js";
 import { extractPdfText } from "../utils/extraction/pdf.util.js";
-import { tryOcrPdf } from "../utils/extraction/ocr.util.js";
+import {
+  tryOcrPdf,
+  type OcrPdfEngine,
+} from "../utils/extraction/ocr.util.js";
 import { cleanExtractedText } from "../utils/extraction/text-clean.util.js";
 import {
   FILE_PIPELINE_RULE,
@@ -19,6 +22,8 @@ export type ExtractResult = {
   cleanedText: string;
   likelyScanned: boolean;
   ocrUsed: boolean;
+  /** set when OCR ran and beat native extract; `none` otherwise */
+  ocrEngine: OcrPdfEngine;
 };
 
 const EXTRACTION_LOG_TEXT_MAX = 32_768;
@@ -39,7 +44,7 @@ export async function extractText(file: {
   mimeType: string;
   originalName?: string;
 }): Promise<ExtractResult> {
-  const { buffer, mimeType } = file;
+  const { buffer, mimeType, originalName } = file;
   let raw = "";
   let pageCount = 0;
 
@@ -70,11 +75,13 @@ export async function extractText(file: {
     mimeType === PDF_MIME && isLikelyScannedPdf(pageCount, cleaned.length);
 
   let ocrUsed = false;
+  let ocrEngine: OcrPdfEngine = "none";
   if (likelyScanned && env.OCR_ENABLED) {
-    const ocrText = await tryOcrPdf(buffer);
-    if (ocrText && ocrText.trim().length > cleaned.length) {
-      cleaned = cleanExtractedText(ocrText);
+    const ocr = await tryOcrPdf(buffer, { originalName });
+    if (ocr.text && ocr.text.trim().length > cleaned.length) {
+      cleaned = cleanExtractedText(ocr.text);
       ocrUsed = true;
+      ocrEngine = ocr.engine;
     }
   }
 
@@ -83,6 +90,7 @@ export async function extractText(file: {
     cleanedText: cleaned,
     likelyScanned,
     ocrUsed,
+    ocrEngine,
   };
 }
 
@@ -126,6 +134,7 @@ export function scheduleExtractionAfterUpload(ctx: {
             rawChars: r.text.length,
             likelyScanned: r.likelyScanned,
             ocrUsed: r.ocrUsed,
+            ocrEngine: r.ocrEngine,
             next: "chunk → embed → DB (setImmediate)",
           })
         );
@@ -165,6 +174,7 @@ export function scheduleExtractionAfterUpload(ctx: {
             cleanedTextChars: r.cleanedText.length,
             likelyScanned: r.likelyScanned,
             ocrUsed: r.ocrUsed,
+            ocrEngine: r.ocrEngine,
             pdfFigureChunks: pdfImageItems?.length ?? 0,
           });
         }

@@ -1,3 +1,6 @@
+/** PDF OCR path on the server (for future API fields or tooling). */
+export type OcrPdfEngine = 'none' | 'tesseract' | 'ai'
+
 export type FileItem = {
   id: string
   name: string
