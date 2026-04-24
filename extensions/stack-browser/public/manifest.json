@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Stack — Save page to workspace",
+  "description": "Sign in with Google, pick a Stack workspace, save the current tab as PDF to Stack.",
+  "version": "1.0.0",
+  "action": {
+    "default_title": "Stack",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "debugger", "identity"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "https://*/*"]
+}
