@@ -3,9 +3,20 @@
   "name": "Stack — Save page to workspace",
   "description": "Sign in with Google, pick a Stack workspace, save the current tab as PDF to Stack.",
   "version": "1.0.0",
+  "icons": {
+    "16": "stack-logo.png",
+    "32": "stack-logo.png",
+    "48": "stack-logo.png",
+    "128": "stack-logo.png"
+  },
   "action": {
     "default_title": "Stack",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "stack-logo.png",
+      "32": "stack-logo.png",
+      "48": "stack-logo.png"
+    }
   },
   "permissions": ["activeTab", "debugger", "identity"],
   "host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "https://*/*"]

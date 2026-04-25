@@ -19,11 +19,21 @@ export type SearchResult = {
 
 export async function semanticSearch(
   query: string,
-  workspaceId?: string
+  workspaceId?: string,
+  signal?: AbortSignal,
 ): Promise<SearchResult[]> {
   const params = new URLSearchParams({ q: query })
   if (workspaceId) params.set('workspaceId', workspaceId)
-  const res = await apiFetchOkAuthed(`/search?${params.toString()}`)
+  const res = await apiFetchOkAuthed(`/search?${params.toString()}`, { signal })
   const body = (await res.json()) as { results: SearchResult[] }
   return body.results
+}
+
+// fetch / DOMException both surface aborts as `name === 'AbortError'`.
+export function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof DOMException && err.name === 'AbortError'
+  ) || (
+    typeof err === 'object' && err !== null && (err as { name?: string }).name === 'AbortError'
+  )
 }

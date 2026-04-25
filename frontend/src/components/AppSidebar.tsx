@@ -7,7 +7,6 @@ import {
   HiOutlineClock,
   HiOutlineFolder,
   HiOutlineQueueList,
-  HiOutlineTrash,
   HiOutlineUserCircle,
 } from 'react-icons/hi2'
 import { NavLink } from 'react-router-dom'
@@ -49,11 +48,10 @@ const navItems = [
   { to: routeMap.recents, label: 'Recents', Icon: HiOutlineClock },
   { to: routeMap.files, label: 'Files', Icon: HiOutlineFolder },
   { to: routeMap.timeline, label: 'Timeline', Icon: HiOutlineQueueList },
-  { to: routeMap.trash, label: 'Trash', Icon: HiOutlineTrash },
 ] as const
 
-function isComingSoonNav(to: (typeof navItems)[number]['to']): boolean {
-  return to === routeMap.timeline || to === routeMap.trash
+function isComingSoonNav(): boolean {
+  return false
 }
 
 function navShellClass(collapsed: boolean): string {
@@ -272,7 +270,7 @@ export function AppSidebar() {
       {/* ── Nav items ── */}
       <nav className="mt-5 flex min-w-0 flex-col gap-2 px-3" aria-label="Main">
         {navItems.map(({ to, label, Icon }) => {
-          const comingSoon = isComingSoonNav(to)
+          const comingSoon = isComingSoonNav()
           const labelRow = (
             <AnimatePresence initial={false}>
               {!collapsed && (

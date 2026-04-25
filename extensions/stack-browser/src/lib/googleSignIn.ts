@@ -12,6 +12,8 @@ export async function signInWithGoogle(): Promise<void> {
       skipBrowserRedirect: true,
     },
   })
+  console.log("data", data)
+  console.log("error", error)
   if (error) throw error
   const url = data.url
   if (!url) throw new Error("No OAuth URL from Supabase")

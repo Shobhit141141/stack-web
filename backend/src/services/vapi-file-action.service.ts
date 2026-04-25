@@ -5,6 +5,33 @@ import * as workspaceService from "./workspace.service.js";
 import type { StackMetaPayload } from "../utils/vapi-stack-meta.js";
 import { isUuid } from "../utils/uuid.js";
 
+// Voice transcription often turns "demo" into phrases like "demo workspace",
+// "the demo workspace", or "workspace demo". Normalize so existing-workspace
+// matching doesn't miss the obvious target and propose creating a duplicate.
+function normalizeWorkspaceNameSpoken(name: string): string {
+  return name
+    .trim()
+    .replace(/^(?:the|a|an)\s+/i, "")
+    .replace(/^workspace\s+/i, "")
+    .replace(/\s+workspace$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findExistingWorkspaceBySpokenName(
+  list: Array<{ id: string; name: string }>,
+  spoken: string,
+): { id: string; name: string } | undefined {
+  const raw = spoken.trim().toLowerCase();
+  if (!raw) return undefined;
+  const normalized = normalizeWorkspaceNameSpoken(spoken).toLowerCase();
+  return list.find((w) => {
+    const wName = w.name.toLowerCase();
+    if (wName === raw || wName === normalized) return true;
+    return normalizeWorkspaceNameSpoken(w.name).toLowerCase() === normalized;
+  });
+}
+
 // resolves file by uuid or name hint for vapi stackFileAction tool.
 export async function handleStackFileAction(params: {
   userId: string;
@@ -150,35 +177,34 @@ export async function handleStackFileAction(params: {
   const confirmNewWs = params.args.confirmNewWorkspace === true;
   let targetWid: string | null | undefined;
 
-  // create-new-workspace + move path (two-turn confirm)
+  // create-new-workspace + move path (two-turn confirm) — but if the proposed
+  // name actually matches an existing workspace once we strip the spoken
+  // "workspace" suffix etc., route the move directly without re-prompting.
   if (typeof newWsNameRaw === "string" && newWsNameRaw.trim()) {
     const proposed = newWsNameRaw.trim();
     const list = await workspaceRepository.listWorkspacesForUser(
       params.userId
     );
-    const existing = list.find(
-      (w) => w.name.toLowerCase() === proposed.toLowerCase()
-    );
+    const existing = findExistingWorkspaceBySpokenName(list, proposed);
 
-    if (!confirmNewWs) {
-      // first turn: ask user to confirm name/spelling
+    if (existing) {
+      // Existing target — skip the confirmation entirely. Already-resolved file
+      // assignment falls through to the final `assignFileToWorkspace` below.
+      targetWid = existing.id;
+    } else if (!confirmNewWs) {
+      // Genuinely new workspace — keep the original two-turn confirm so a
+      // misheard name doesn't silently create a duplicate workspace.
       return {
-        result: existing
-          ? `You already have a workspace called "${existing.name}". Move "${resolved.originalName}" there? Say yes, or use a different name.`
-          : `Create a new workspace called "${proposed}" and move "${resolved.originalName}" there? Say yes, or spell the name again.`,
+        result: `Create a new workspace called "${proposed}" and move "${resolved.originalName}" there? Say yes, or spell the name again.`,
         meta: {
           clientAction: {
             type: "confirmNewWorkspace",
             fileId: resolved.id,
             fileName: resolved.originalName,
-            proposedName: existing?.name ?? proposed,
+            proposedName: proposed,
           },
         },
       };
-    }
-
-    if (existing) {
-      targetWid = existing.id;
     } else {
       try {
         const created = await workspaceService.createWorkspace(
@@ -202,12 +228,15 @@ export async function handleStackFileAction(params: {
     const list = await workspaceRepository.listWorkspacesForUser(
       params.userId
     );
-    const exact = list.find(
-      (w) => w.name.toLowerCase() === wname.toLowerCase()
-    );
-    const partial = list.filter((w) =>
-      w.name.toLowerCase().includes(wname.toLowerCase())
-    );
+    const exact = findExistingWorkspaceBySpokenName(list, wname);
+    const normalizedWname = normalizeWorkspaceNameSpoken(wname).toLowerCase();
+    const partial = list.filter((w) => {
+      const wn = w.name.toLowerCase();
+      return (
+        wn.includes(wname.toLowerCase()) ||
+        (normalizedWname && wn.includes(normalizedWname))
+      );
+    });
     if (exact) targetWid = exact.id;
     else if (partial.length === 1) targetWid = partial[0]!.id;
     else if (partial.length > 1) {

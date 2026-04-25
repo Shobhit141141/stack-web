@@ -104,6 +104,26 @@ function removeDeletedFileFromRefs(
   return m[1].trim()
 }
 
+// Backend returns a couple of stable result strings for a successful move.
+// Parse them so we can show the same toast as the manual-move path even when
+// the assistant ran the move via stackFileAction.
+function parseMoveResultForToast(
+  text: unknown,
+): { fileName: string; workspaceLabel: string | null } | null {
+  if (typeof text !== 'string') return null
+  const unassign = text.match(
+    /^Moved\s+(.+?)\s+out of any workspace\s*\(unassigned\)\.$/i,
+  )
+  if (unassign?.[1]) {
+    return { fileName: unassign[1].trim(), workspaceLabel: null }
+  }
+  const moved = text.match(/^Moved\s+(.+?)\s+to\s+(.+?)\.$/i)
+  if (moved?.[1] && moved[2]) {
+    return { fileName: moved[1].trim(), workspaceLabel: moved[2].trim() }
+  }
+  return null
+}
+
 function extractModelOutputChunk(
   output: unknown,
 ): { mode: 'append' | 'replace'; text: string } | null {
@@ -183,6 +203,7 @@ export function useVapi(options?: { workspaceId?: string }) {
   const sessionAliveRef = useRef(false)
   const handledClientActionKeysRef = useRef<Set<string>>(new Set())
   const handledDeleteToastKeysRef = useRef<Set<string>>(new Set())
+  const handledMoveToastKeysRef = useRef<Set<string>>(new Set())
   const connectTimersRef = useRef<{
     slow?: ReturnType<typeof setTimeout>
     hard?: ReturnType<typeof setTimeout>
@@ -487,6 +508,7 @@ export function useVapi(options?: { workspaceId?: string }) {
       assistantTokenAccRef.current = ''
       handledClientActionKeysRef.current.clear()
       handledDeleteToastKeysRef.current.clear()
+      handledMoveToastKeysRef.current.clear()
       setAssistantTokenLive('')
       sessionAliveRef.current = true
       setReferredFiles([])
@@ -520,6 +542,7 @@ export function useVapi(options?: { workspaceId?: string }) {
       setAssistantLive('')
       handledClientActionKeysRef.current.clear()
       handledDeleteToastKeysRef.current.clear()
+      handledMoveToastKeysRef.current.clear()
       })
 
       vapi.on('error', () => {
@@ -649,6 +672,18 @@ export function useVapi(options?: { workspaceId?: string }) {
           // sync file list, workspace UI, and storage summary across the app
           emitFilesUpdated({ workspaceId: workspaceId ?? null })
         }
+        const moved = parseMoveResultForToast(msg.result)
+        if (moved) {
+          const key = `${moved.fileName.toLowerCase()}→${moved.workspaceLabel?.toLowerCase() ?? '__unassigned__'}`
+          if (!handledMoveToastKeysRef.current.has(key)) {
+            handledMoveToastKeysRef.current.add(key)
+            toast.success(
+              moved.workspaceLabel
+                ? `Moved ${moved.fileName} to ${moved.workspaceLabel}`
+                : `${moved.fileName} is now unassigned`,
+            )
+          }
+        }
       }
 
       // Some Vapi transports emit finalized tool outputs in conversation-update payloads.
@@ -671,6 +706,18 @@ export function useVapi(options?: { workspaceId?: string }) {
               }
               // sync file list, workspace UI, and storage summary
               emitFilesUpdated({ workspaceId: workspaceId ?? null })
+            }
+            const moved = parseMoveResultForToast(o.result)
+            if (moved) {
+              const key = `${moved.fileName.toLowerCase()}→${moved.workspaceLabel?.toLowerCase() ?? '__unassigned__'}`
+              if (!handledMoveToastKeysRef.current.has(key)) {
+                handledMoveToastKeysRef.current.add(key)
+                toast.success(
+                  moved.workspaceLabel
+                    ? `Moved ${moved.fileName} to ${moved.workspaceLabel}`
+                    : `${moved.fileName} is now unassigned`,
+                )
+              }
             }
             continue
           }

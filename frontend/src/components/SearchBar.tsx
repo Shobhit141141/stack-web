@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HiOutlineMagnifyingGlass } from 'react-icons/hi2'
-import { semanticSearch, type SearchResult } from '../services/search-service'
+import { semanticSearch, isAbortError, type SearchResult } from '../services/search-service'
 import { openKnownFile } from '../hooks/use-open-file'
 import { useImageThumbnailUrls } from '../hooks/use-image-thumbnail-urls'
 import { usePdfExtractionPreviewUrls } from '../hooks/use-pdf-extraction-preview-urls'
@@ -30,6 +30,11 @@ export function SearchBar() {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
+  // Tracks the in-flight request so a newer keystroke can cancel an older one.
+  const inflightRef = useRef<AbortController | null>(null)
+  // The query the currently-rendered `results` correspond to. Late responses for
+  // older queries are dropped so they never overwrite fresh results.
+  const resultsQueryRef = useRef('')
   const thumbnailInputs = useMemo(() => {
     const rows: Array<{ fileId: string; type: string; thumbnailUrl: null }> = []
     const seen = new Set<string>()
@@ -65,20 +70,39 @@ export function SearchBar() {
   const pdfExtractionUrls = usePdfExtractionPreviewUrls(pdfExtractionRefs)
 
   const search = useCallback(async (q: string) => {
-    if (q.trim().length < 2) {
+    const trimmed = q.trim()
+    if (trimmed.length < 2) {
+      inflightRef.current?.abort()
+      inflightRef.current = null
+      resultsQueryRef.current = ''
       setResults([])
       setLoading(false)
       return
     }
+    // Cancel any in-flight request for an older query so its late response
+    // cannot overwrite the results we are about to fetch.
+    inflightRef.current?.abort()
+    const ctl = new AbortController()
+    inflightRef.current = ctl
     setLoading(true)
     try {
-      const data = await semanticSearch(q.trim())
+      const data = await semanticSearch(trimmed, undefined, ctl.signal)
+      // A newer keystroke may have started another request while we were waiting;
+      // only commit if this controller is still the latest.
+      if (inflightRef.current !== ctl) return
+      resultsQueryRef.current = trimmed
       setResults(data)
       setOpen(true)
-    } catch {
+    } catch (err) {
+      if (isAbortError(err)) return
+      if (inflightRef.current !== ctl) return
+      resultsQueryRef.current = trimmed
       setResults([])
     } finally {
-      setLoading(false)
+      if (inflightRef.current === ctl) {
+        inflightRef.current = null
+        setLoading(false)
+      }
     }
   }, [])
 
@@ -86,10 +110,18 @@ export function SearchBar() {
     setQuery(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (value.trim().length < 2) {
+      inflightRef.current?.abort()
+      inflightRef.current = null
+      resultsQueryRef.current = ''
       setResults([])
       setOpen(false)
       setLoading(false)
       return
+    }
+    // Drop stale results from the previous query so the dropdown shows the
+    // skeleton rather than the wrong list while we wait for the new response.
+    if (resultsQueryRef.current && resultsQueryRef.current !== value.trim()) {
+      setResults([])
     }
     setLoading(true)
     setOpen(true)

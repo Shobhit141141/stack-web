@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   HiOutlineArrowDownTray,
   HiOutlineArrowsRightLeft,
+  HiOutlineChevronDown,
   HiOutlineDocumentDuplicate,
   HiOutlineMicrophone,
   HiOutlineTrash,
   HiOutlineXMark,
 } from 'react-icons/hi2'
+import { openKnownFile } from '../../hooks/use-open-file'
 import type {
   VapiStatus,
   VoicePendingMove,
@@ -16,6 +18,62 @@ import type {
   VoiceTurn,
 } from '../../hooks/use-vapi'
 import type { WorkspaceItem } from '../../services/workspace-service'
+
+// Escape regex metacharacters so user filenames can be matched literally.
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function fileIconForName(name: string): string {
+  const l = name.toLowerCase()
+  if (l.endsWith('.pdf')) return '/icons/pdf.svg'
+  if (l.endsWith('.docx') || l.endsWith('.doc')) return '/icons/docx-file.svg'
+  return '/icons/cloud.svg'
+}
+
+// Replace any occurrence of a referred-file name in the assistant text with an
+// inline chip (icon + name). Matching is case-insensitive on the longest names
+// first so e.g. "world-history.pdf" wins over "world.pdf" if both are sources.
+function renderTextWithVoiceFileChips(
+  text: string,
+  files: VoiceReferredFile[],
+): React.ReactNode {
+  if (!text) return null
+  if (files.length === 0) return text
+  const sorted = [...files].sort((a, b) => b.fileName.length - a.fileName.length)
+  const pattern = sorted.map((f) => escapeRegex(f.fileName)).join('|')
+  if (!pattern) return text
+  const re = new RegExp(`(${pattern})`, 'gi')
+  const parts = text.split(re)
+  const byNameLower = new Map<string, VoiceReferredFile>()
+  for (const f of files) byNameLower.set(f.fileName.toLowerCase(), f)
+  return parts.map((part, idx) => {
+    if (!part) return null
+    const file = byNameLower.get(part.toLowerCase())
+    if (!file) return <Fragment key={`${idx}-t`}>{part}</Fragment>
+    return (
+      <span
+        key={`${idx}-c-${file.fileId}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => {
+          void openKnownFile(file.fileId, file.fileName)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            void openKnownFile(file.fileId, file.fileName)
+          }
+        }}
+        className="mx-0.5 inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md border border-white/20 bg-white/10 px-1.5 py-0.5 align-middle text-xs font-semibold text-white/95 transition-colors hover:bg-white/20"
+        title={`Open ${file.fileName}`}
+      >
+        <img src={fileIconForName(file.fileName)} alt="" className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">{file.fileName}</span>
+      </span>
+    )
+  })
+}
 
 const MOVE_PLACEHOLDER = ''
 const MOVE_UNASSIGNED = '__unassigned__'
@@ -95,6 +153,38 @@ export function VoiceSessionOverlay({
   const isConnecting = status === 'connecting'
   const scrollRef = useRef<HTMLDivElement>(null)
   const [connectingLine, setConnectingLine] = useState(() => pickRandomConnectingLine())
+  const [referencesExpanded, setReferencesExpanded] = useState(false)
+
+  // RAG can retrieve files the user did not actually ask about; only show the
+  // files the assistant explicitly named in its spoken answer. If the assistant
+  // didn't name any source by file name (rare), fall back to the full list so
+  // we never silently hide information.
+  const displayedFiles = useMemo(() => {
+    if (referredFiles.length === 0) return referredFiles
+    const haystack = [
+      ...turns.filter((t) => t.role === 'assistant').map((t) => t.text),
+      assistantText,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+    if (!haystack) return referredFiles
+    const named = referredFiles.filter((f) =>
+      haystack.includes(f.fileName.toLowerCase()),
+    )
+    return named.length > 0 ? named : referredFiles
+  }, [referredFiles, turns, assistantText])
+
+  // Auto-expand the references section the first time files are referenced
+  // in a session, then leave the user in control.
+  const lastFileCountRef = useRef(0)
+  useEffect(() => {
+    const prev = lastFileCountRef.current
+    if (displayedFiles.length > 0 && prev === 0) {
+      setReferencesExpanded(true)
+    }
+    lastFileCountRef.current = displayedFiles.length
+  }, [displayedFiles.length])
 
   useEffect(() => {
     if (!isConnecting) return
@@ -195,7 +285,7 @@ export function VoiceSessionOverlay({
         </motion.div>
       </div>
 
-      <div className="pointer-events-auto absolute inset-x-0 bottom-0 flex max-h-[80vh] flex-col items-center gap-4 px-4 pb-8 pt-4 md:px-8">
+      <div className="pointer-events-auto absolute inset-x-0 bottom-0 flex max-h-[72vh] flex-col items-center gap-4 px-4 pb-8 pt-4 md:px-8">
         <div className="flex w-full max-w-lg min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-white/20 bg-linear-to-b from-white/14 to-white/5 px-5 py-5 shadow-[0_25px_80px_rgba(0,0,0,0.35)] backdrop-blur-2xl md:px-7 md:py-6">
           {isConnecting ? (
             <div className="space-y-2 text-center">
@@ -209,8 +299,13 @@ export function VoiceSessionOverlay({
             </div>
           ) : null}
 
-          {/* Scrollable conversation history — fixed height so chat never pushes the card past the viewport */}
-          <div ref={scrollRef} className="mt-2 h-[32vh] shrink-0 space-y-3 overflow-y-auto pr-1">
+          {/* Conversation history — auto-sized so the card starts compact and grows
+              with content; capped + internal scroll so it never pushes the card past
+              the viewport (parent caps total at 72vh). */}
+          <div
+            ref={scrollRef}
+            className="mt-2 min-h-0 max-h-[42vh] flex-1 space-y-3 overflow-y-auto pr-1"
+          >
             {turns.length === 0 && !isConnecting && !userText.trim() && !assistantText.trim() && (
               <p className="text-center text-sm text-white/55">
                 Speak or wait for the assistant…
@@ -225,7 +320,9 @@ export function VoiceSessionOverlay({
                   {turn.role === 'user' ? 'You' : 'Stack'}
                 </p>
                 <p className="text-[15px] leading-relaxed text-white/90">
-                  {turn.text}
+                  {turn.role === 'assistant'
+                    ? renderTextWithVoiceFileChips(turn.text, displayedFiles)
+                    : turn.text}
                 </p>
               </div>
             ))}
@@ -261,16 +358,40 @@ export function VoiceSessionOverlay({
             ) : null}
           </div>
 
-          {referredFiles.length > 0 ? (
-            <div className="mt-4 flex min-h-0 flex-1 flex-col border-t border-white/15 pt-4">
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/55">
-                Referenced files
-              </p>
-              <p className="mb-3 text-xs leading-snug text-white/60">
-                Say “download”, “copy link”, “delete”, or “move” — or use the actions below.
-              </p>
-              <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
-                {referredFiles.map((f) => {
+          {displayedFiles.length > 0 ? (
+            <div className="mt-4 shrink-0 flex flex-col border-t border-white/15 pt-4">
+              <button
+                type="button"
+                onClick={() => setReferencesExpanded((v) => !v)}
+                aria-expanded={referencesExpanded}
+                aria-controls="voice-referenced-files-list"
+                className="mb-2 flex w-full cursor-pointer items-center justify-between gap-2 rounded-md text-left text-[10px] font-bold uppercase tracking-[0.2em] text-white/55 transition-colors hover:text-white/85"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  Referenced files
+                  <span
+                    aria-hidden
+                    className="inline-flex items-center justify-center rounded-full bg-white/15 px-1.5 py-0.5 text-[9px] tracking-normal text-white/85"
+                  >
+                    {displayedFiles.length}
+                  </span>
+                </span>
+                <HiOutlineChevronDown
+                  aria-hidden
+                  className={`size-3.5 transition-transform duration-200 ${referencesExpanded ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {referencesExpanded ? (
+                <p className="mb-3 text-xs leading-snug text-white/60">
+                  Say “download”, “copy link”, “delete”, or “move” — or use the actions below.
+                </p>
+              ) : null}
+              <ul
+                id="voice-referenced-files-list"
+                hidden={!referencesExpanded}
+                className="flex flex-col gap-3"
+              >
+                {displayedFiles.map((f) => {
                   const currentWid = f.workspaceId ?? null
                   const moveOptions = workspaces.filter(
                     (w) => w.id !== currentWid,

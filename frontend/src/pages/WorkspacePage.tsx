@@ -257,6 +257,9 @@ export function WorkspacePage() {
         workspaceId,
       })
       setFiles(filterFilesForWorkspace(res.files, workspaceId))
+      // Notify other workspace-scoped consumers (chat panel @-mention list, etc.)
+      // so their cached file list refreshes too.
+      emitFilesUpdated({ workspaceId })
     } catch {
       toast.error('Could not refresh files')
     } finally {

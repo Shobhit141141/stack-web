@@ -148,6 +148,17 @@ export function scheduleExtractionAfterUpload(ctx: {
           ].join("\n")
         );
 
+        // Kick off summary as soon as text is available. PDF figure captioning
+        // (vision LLM, 5-30s on figure-heavy PDFs) doesn't feed the summary
+        // unless cleanedText is empty, so don't make it a barrier.
+        const hasCleanedText = r.cleanedText.trim().length > 0;
+        if (hasCleanedText) {
+          scheduleContentSummaryGeneration({
+            contentId: ctx.contentId,
+            extractedText: r.cleanedText,
+          });
+        }
+
         let pdfImageItems =
           ctx.mimeType === PDF_MIME
             ? await buildPdfImageIndexItems({
@@ -156,7 +167,7 @@ export function scheduleExtractionAfterUpload(ctx: {
                 parentFileId: ctx.fileId,
                 originalName: ctx.originalName,
                 // Required fallback: if no embedded rasters and no text, render page(s) then caption.
-                fallbackWhenNoRasters: r.cleanedText.trim().length === 0,
+                fallbackWhenNoRasters: !hasCleanedText,
                 fallbackMaxPages: 1,
               })
             : undefined;
@@ -179,14 +190,17 @@ export function scheduleExtractionAfterUpload(ctx: {
           });
         }
 
-        const summaryBase = r.cleanedText.trim()
-          ? r.cleanedText
-          : (pdfImageItems?.map((i) => i.caption).join("\n\n") ?? "");
-        if (summaryBase.trim()) {
-          scheduleContentSummaryGeneration({
-            contentId: ctx.contentId,
-            extractedText: summaryBase,
-          });
+        // Image-only docs (no extractable text) still need figure captions
+        // before we can summarize — schedule once captions are ready.
+        if (!hasCleanedText) {
+          const captionsBase =
+            pdfImageItems?.map((i) => i.caption).join("\n\n") ?? "";
+          if (captionsBase.trim()) {
+            scheduleContentSummaryGeneration({
+              contentId: ctx.contentId,
+              extractedText: captionsBase,
+            });
+          }
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

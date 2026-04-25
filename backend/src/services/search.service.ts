@@ -19,6 +19,15 @@ const MAX_RESULTS = 10;
 const SNIPPET_MAX_CHARS = 400;
 /** If other hits are more than this far below the best score (on 0–1 scale), drop them. */
 const SEARCH_TOP_SCORE_MARGIN = 0.05;
+/**
+ * Soft fallback (when no chunk meets `RAG_MIN_CHUNK_SCORE`) is allowed to surface
+ * weak matches so the dropdown never feels broken on short queries — but capped
+ * to the few best so it can't degrade into "every PDF, ranked by noise". A hard
+ * floor below the soft fallback drops chunks that would obviously be unrelated.
+ */
+const SOFT_FALLBACK_MAX_RESULTS = 3;
+const SOFT_FALLBACK_SCORE_FLOOR_RATIO = 0.5;
+const SOFT_FALLBACK_SCORE_FLOOR_MIN = 0.18;
 
 function rankAndClusterSearchResults(
   items: SemanticSearchResultItem[]
@@ -142,11 +151,18 @@ export async function semanticSearchUserFiles(
   }
 
   // if vector search returned neighbors but all are below threshold, keep top nearest
-  // results as a fallback so semantic search does not appear broken on short/vague queries.
+  // results as a soft fallback so semantic search does not feel broken on short/vague
+  // queries — but with a hard floor and a small cap so weak matches can't flood the
+  // dropdown (which previously looked like "all PDFs" before the real result arrived).
   if (seen.size === 0 && chunks.length > 0) {
+    const softFloor = Math.max(
+      SOFT_FALLBACK_SCORE_FLOOR_MIN,
+      minScore * SOFT_FALLBACK_SCORE_FLOOR_RATIO
+    );
     for (const row of chunks) {
       if (seen.has(row.contentId)) continue;
       const score = Math.max(0, 1 - row.distance);
+      if (score < softFloor) continue;
       const previewFileId = previewFileIdFromChunkMeta(row.chunkMeta);
       const pdfEx = pdfExtractionRefFromChunkMeta(row.chunkMeta);
       const chunkSource =
@@ -164,7 +180,7 @@ export async function semanticSearchUserFiles(
         ...(pdfEx ? { previewPdfExtraction: { slot: pdfEx.slot } } : {}),
         ...(typeof chunkSource === "string" ? { chunkSource } : {}),
       });
-      if (seen.size >= MAX_RESULTS) break;
+      if (seen.size >= SOFT_FALLBACK_MAX_RESULTS) break;
     }
   }
 
