@@ -31,6 +31,11 @@ import {
   FILES_UPDATED_EVENT,
   type FilesUpdatedDetail,
 } from '../lib/file-sync-events'
+import {
+  filterPendingDeletes,
+  isWorkspacePendingDelete,
+  markWorkspaceDeleted,
+} from '../lib/pending-workspace-deletes'
 import { routeMap } from '../lib/routes'
 import type { FileItem } from '../types/file'
 
@@ -77,7 +82,7 @@ export function FilesPage() {
     setWorkspacesLoading(true)
     try {
       const list = await fetchWorkspaces()
-      setWorkspaces(list)
+      setWorkspaces(filterPendingDeletes(list))
     } catch {
       toast.error('Could not load workspaces')
     } finally {
@@ -106,7 +111,10 @@ export function FilesPage() {
     }
     try {
       const res = await fetchFileList(params)
-      setFiles(res.files)
+      const visible = res.files.filter(
+        (f) => !f.workspaceId || !isWorkspacePendingDelete(f.workspaceId),
+      )
+      setFiles(visible)
       setTotal(res.pagination.total)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load files')
@@ -332,10 +340,11 @@ export function FilesPage() {
         target={workspaceDeleteTarget}
         onClose={() => setWorkspaceDeleteTarget(null)}
         onConfirm={async (ws) => {
+          markWorkspaceDeleted(ws.id)
+          setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id))
+          setFiles((prev) => prev.filter((f) => f.workspaceId !== ws.id))
           await deleteWorkspace(ws.id)
-          emitFilesUpdated()
           toast.success(`Workspace “${ws.name}” deletion started`)
-          navigate(routeMap.home)
         }}
       />
 

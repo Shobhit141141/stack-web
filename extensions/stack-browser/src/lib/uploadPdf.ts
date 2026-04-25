@@ -27,7 +27,14 @@ export async function uploadPdfToWorkspace(
     body: fd,
   })
   if (!res.ok) {
-    const t = await res.text().catch(() => "")
-    throw new Error(`${res.status}: ${t.slice(0, 240)}`)
+    let message = ""
+    try {
+      const data = (await res.json()) as { error?: string; detail?: string }
+      message = data.error || data.detail || ""
+    } catch {
+      message = await res.text().catch(() => "")
+    }
+    const clean = message.trim().slice(0, 240)
+    throw new Error(clean ? `${res.status}: ${clean}` : `${res.status}: Upload failed`)
   }
 }

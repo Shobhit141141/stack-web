@@ -231,6 +231,19 @@ function logStorageUploadFailure(
   log.error(`${header}\n${String(e)}`);
 }
 
+// maps known storage upload failures to user-facing http errors
+function mapStorageUploadHttpError(e: unknown): HttpError {
+  const message = e instanceof Error ? e.message : String(e);
+  const normalized = message.toLowerCase();
+  if (normalized.includes("invalid key")) {
+    return new HttpError(
+      400,
+      "File name contains unsupported characters. Rename the file and try again."
+    );
+  }
+  return new HttpError(502, "Could not store file");
+}
+
 export async function uploadUserFile(params: {
   accessToken: string;
   userId: string;
@@ -276,7 +289,7 @@ export async function uploadUserFile(params: {
       mimeType: params.mimeType,
       sizeBytes: params.buffer.length,
     });
-    throw new HttpError(502, "Could not store file");
+    throw mapStorageUploadHttpError(e);
   }
 
   let thumbnailStoragePath: string | undefined;

@@ -31,6 +31,7 @@ import {
   filterFilesForWorkspace,
   type FilesUpdatedDetail,
 } from '../lib/file-sync-events'
+import { markWorkspaceDeleted } from '../lib/pending-workspace-deletes'
 import { routeMap } from '../lib/routes'
 import type { RootLayoutOutletContext } from '../layouts/root-layout-outlet-context'
 import type { FileItem } from '../types/file'
@@ -455,10 +456,11 @@ export function WorkspacePage() {
         target={workspaceDeleteTarget}
         onClose={() => setWorkspaceDeleteTarget(null)}
         onConfirm={async (ws) => {
+          markWorkspaceDeleted(ws.id)
           await deleteWorkspace(ws.id)
           emitFilesUpdated()
           toast.success(`Workspace “${ws.name}” deletion started`)
-          navigate(routeMap.home)
+          navigate(routeMap.files, { replace: true })
         }}
       />
     </div>
