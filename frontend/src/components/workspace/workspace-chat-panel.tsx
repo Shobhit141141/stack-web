@@ -180,7 +180,9 @@ function fileIconForName(name: string): string {
 }
 
 function formatInlineMention(fileName: string): string {
-  return `@${fileName}`
+  // Brace whenever the name has chars outside the bare-mention set so the chip
+  // captures the whole filename (e.g. "Shobhit Tiwari.pdf" — space breaks bare form).
+  return /^[\w][\w.\-]*$/.test(fileName) ? `@${fileName}` : `@{${fileName}}`
 }
 
 function parseMentionedFiles(query: string, files: FileItem[]): MentionParseResult {

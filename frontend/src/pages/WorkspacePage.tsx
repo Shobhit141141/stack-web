@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { Text } from '@radix-ui/themes'
 import toast from 'react-hot-toast'
+import { HiOutlineArrowPath } from 'react-icons/hi2'
 import { FileBrowserView } from '../components/files/file-browser-view'
 import { FileRenameDeleteModals } from '../components/files/file-rename-delete-modals'
 import { ViewModeToggle } from '../components/files/view-mode-toggle'
@@ -38,9 +39,30 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const FILE_VIEW_KEY = 'stack-workspace-page-files-view'
+const SPLIT_STORAGE_KEY = 'stack-workspace-page-chat-pct'
+const DEFAULT_CHAT_PCT = 60
+const MIN_CHAT_PCT = 30
+const MAX_CHAT_PCT = 60
 
 function isUuid(value: string): boolean {
   return UUID_RE.test(value)
+}
+
+function clampPct(n: number): number {
+  return Math.min(MAX_CHAT_PCT, Math.max(MIN_CHAT_PCT, n))
+}
+
+function readStoredChatPct(): number {
+  if (typeof window === 'undefined') return DEFAULT_CHAT_PCT
+  try {
+    const raw = window.localStorage.getItem(SPLIT_STORAGE_KEY)
+    if (!raw) return DEFAULT_CHAT_PCT
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return DEFAULT_CHAT_PCT
+    return clampPct(n)
+  } catch {
+    return DEFAULT_CHAT_PCT
+  }
 }
 
 export function WorkspacePage() {
@@ -67,6 +89,79 @@ export function WorkspacePage() {
   )
   const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<WorkspaceItem | null>(null)
   const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = useState<WorkspaceItem | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const [chatPct, setChatPct] = useState<number>(() => readStoredChatPct())
+  const splitContainerRef = useRef<HTMLDivElement | null>(null)
+  const chatPaneRef = useRef<HTMLElement | null>(null)
+  const filesPaneRef = useRef<HTMLElement | null>(null)
+  const draggingRef = useRef(false)
+  const liveChatPctRef = useRef(chatPct)
+
+  const applySplit = useCallback((pct: number) => {
+    if (chatPaneRef.current) chatPaneRef.current.style.flexBasis = `${pct}%`
+    if (filesPaneRef.current) filesPaneRef.current.style.flexBasis = `${100 - pct}%`
+  }, [])
+
+  const onSplitPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      draggingRef.current = true
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    },
+    [],
+  )
+
+  const onSplitPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!draggingRef.current) return
+      const rect = splitContainerRef.current?.getBoundingClientRect()
+      if (!rect || rect.width === 0) return
+      const pct = clampPct(((e.clientX - rect.left) / rect.width) * 100)
+      liveChatPctRef.current = pct
+      applySplit(pct)
+    },
+    [applySplit],
+  )
+
+  const endSplitDrag = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!draggingRef.current) return
+      draggingRef.current = false
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      const final = liveChatPctRef.current
+      setChatPct(final)
+      try {
+        window.localStorage.setItem(SPLIT_STORAGE_KEY, String(Math.round(final)))
+      } catch {
+        /* ignore */
+      }
+    },
+    [],
+  )
+
+  const onSplitDoubleClick = useCallback(() => {
+    liveChatPctRef.current = DEFAULT_CHAT_PCT
+    applySplit(DEFAULT_CHAT_PCT)
+    setChatPct(DEFAULT_CHAT_PCT)
+    try {
+      window.localStorage.setItem(SPLIT_STORAGE_KEY, String(DEFAULT_CHAT_PCT))
+    } catch {
+      /* ignore */
+    }
+  }, [applySplit])
 
   const load = useCallback(async () => {
     if (!isUuid(workspaceId)) {
@@ -150,6 +245,24 @@ export function WorkspacePage() {
     return () => setTopBarTrailing(null)
   }, [workspace, setTopBarTrailing])
 
+  const handleRefreshFiles = useCallback(async () => {
+    if (!isUuid(workspaceId) || refreshing) return
+    setRefreshing(true)
+    try {
+      const res = await fetchFileList({
+        page: 1,
+        limit: 200,
+        sort: 'createdAt_desc',
+        workspaceId,
+      })
+      setFiles(filterFilesForWorkspace(res.files, workspaceId))
+    } catch {
+      toast.error('Could not refresh files')
+    } finally {
+      setRefreshing(false)
+    }
+  }, [workspaceId, refreshing])
+
   if (!isUuid(workspaceId)) {
     return (
       <div className="p-4 sm:p-6">
@@ -228,8 +341,15 @@ export function WorkspacePage() {
         />
       ) : null}
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
-        <section className="flex min-h-0 min-w-0 flex-1 basis-1/2 flex-col border-neutral-200 lg:basis-auto lg:border-r">
+      <div
+        ref={splitContainerRef}
+        className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row"
+      >
+        <section
+          ref={chatPaneRef}
+          style={{ flexBasis: `${chatPct}%` }}
+          className="flex min-h-0 min-w-0 flex-1 flex-col border-neutral-200 lg:flex-none"
+        >
           {workspace ? (
             <WorkspaceChatPanel workspaceId={workspace.id} workspaceName={workspace.name} />
           ) : (
@@ -241,12 +361,54 @@ export function WorkspacePage() {
           )}
         </section>
 
-        <aside className="flex min-h-0 w-full flex-1 basis-1/2 shrink-0 flex-col gap-3 border-neutral-200 bg-neutral-50/60 p-3 sm:p-4 lg:w-88 lg:basis-auto lg:border-l xl:w-96">
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_CHAT_PCT}
+          aria-valuemax={MAX_CHAT_PCT}
+          aria-valuenow={Math.round(chatPct)}
+          aria-label="Resize chat and files panes"
+          tabIndex={-1}
+          onPointerDown={onSplitPointerDown}
+          onPointerMove={onSplitPointerMove}
+          onPointerUp={endSplitDrag}
+          onPointerCancel={endSplitDrag}
+          onDoubleClick={onSplitDoubleClick}
+          title="Drag to resize · double-click to reset"
+          className="group relative hidden shrink-0 cursor-col-resize touch-none select-none items-center justify-center bg-neutral-200 transition-colors hover:bg-neutral-300 active:bg-neutral-400 lg:flex lg:w-px"
+        >
+          <span className="pointer-events-none absolute inset-y-0 -left-2 -right-2" aria-hidden />
+          <span
+            className="pointer-events-none absolute h-8 w-0.5 rounded-full bg-neutral-300 opacity-0 transition-opacity group-hover:opacity-100 group-active:opacity-100"
+            aria-hidden
+          />
+        </div>
+
+        <aside
+          ref={filesPaneRef}
+          style={{ flexBasis: `${100 - chatPct}%` }}
+          className="flex min-h-0 w-full min-w-0 flex-1 shrink-0 flex-col gap-3 border-neutral-200 bg-neutral-50/60 p-3 sm:p-4 lg:w-auto lg:flex-none"
+        >
           <div className="flex items-center justify-between gap-2">
             <Text size="3" weight="bold" className="text-neutral-900">
               Files
             </Text>
-            <ViewModeToggle view={view} onChange={setView} />
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleRefreshFiles()}
+                disabled={refreshing || loading}
+                title="Refresh files"
+                aria-label="Refresh files"
+                className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <HiOutlineArrowPath
+                  className={`size-4 ${refreshing ? 'animate-spin' : ''}`}
+                  aria-hidden
+                />
+              </button>
+              <ViewModeToggle view={view} onChange={setView} />
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <FileBrowserView
