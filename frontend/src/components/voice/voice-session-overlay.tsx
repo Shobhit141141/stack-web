@@ -28,6 +28,20 @@ function fileIconForName(name: string): string {
   const l = name.toLowerCase()
   if (l.endsWith('.pdf')) return '/icons/pdf.svg'
   if (l.endsWith('.docx') || l.endsWith('.doc')) return '/icons/docx-file.svg'
+  if (
+    l.endsWith('.png') ||
+    l.endsWith('.jpg') ||
+    l.endsWith('.jpeg') ||
+    l.endsWith('.webp') ||
+    l.endsWith('.gif') ||
+    l.endsWith('.bmp') ||
+    l.endsWith('.svg') ||
+    l.endsWith('.avif') ||
+    l.endsWith('.heic') ||
+    l.endsWith('.heif')
+  ) {
+    return '/icons/image.png'
+  }
   return '/icons/cloud.svg'
 }
 

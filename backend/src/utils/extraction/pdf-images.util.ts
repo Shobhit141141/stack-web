@@ -30,6 +30,7 @@ export async function extractRasterImagesFromPdf(buffer: Buffer): Promise<PdfRas
   const seenHashes = new Set<string>();
 
   try {
+    // it returns a promise of a PDFDocumentProxy - we await it to get the document
     const pdf = await getDocumentProxy(new Uint8Array(buffer));
     const numPages = pdf.numPages;
 

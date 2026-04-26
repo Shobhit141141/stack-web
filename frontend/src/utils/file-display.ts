@@ -24,7 +24,7 @@ export function isImageFileType(type: string): boolean {
 }
 
 export function fileIcon(type: string): string {
-  if (isImageFileType(type)) return '/icons/cloud.svg'
+  if (isImageFileType(type)) return '/icons/image.png'
   const t = type.toLowerCase()
   if (t.includes('pdf')) return '/icons/pdf.svg'
   if (t.includes('doc') || t.includes('word')) return '/icons/docx-file.svg'

@@ -852,6 +852,8 @@ export async function listRecentUserFiles(params: {
     size: number;
     workspaceId: string | null;
     thumbnailUrl: string | null;
+    summary: string | null;
+    summaryStatus: "pending" | "ready" | "failed";
     createdAt: string;
   }>;
 }> {
@@ -872,6 +874,8 @@ export async function listRecentUserFiles(params: {
         thumbnailStoragePath: row.thumbnailStoragePath,
         mimeType: row.mimeType,
       }),
+      summary: row.contentRef.summary ?? null,
+      summaryStatus: row.contentRef.summaryStatus,
       createdAt: row.createdAt.toISOString(),
     }))
   );
